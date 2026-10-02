@@ -351,13 +351,14 @@ export default function App() {
   const [payrollInputForm, setPayrollInputForm] = useState({
     staffId: '',
     period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    epfEtfEnabled: true, // <-- ADD THIS: Toggle EPF/ETF applicability
     basicSalary: 35000,
-    budgetaryAllowance: 2500, // Statutory BRA
+    budgetaryAllowance: 2500,
     otherAllowances: 0,
     serviceChargeBonus: 0,
     incentiveBonus: 0,
     overtimeHours: 0,
-    overtimeRate: 250, // hourly
+    overtimeRate: 250,
     otherDeductions: 0,
     notes: ''
   });
@@ -2001,6 +2002,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
   // SRI LANKAN STATUTORY CALCULATION HELPERS (EPF / ETF / SERVICE POOL)
   // =========================================================================
   const calculateSriLankanPayroll = ({
+    epfEtfEnabled = true, // <-- Add parameter
     basicSalary = 0,
     budgetaryAllowance = 0,
     otherAllowances = 0,
@@ -2011,32 +2013,30 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     otherDeductions = 0
   }) => {
     const basic = Number(basicSalary) || 0;
-    const bra = Number(budgetaryAllowance) || 0; // Statutory Budgetary Relief Allowance
+    const bra = Number(budgetaryAllowance) || 0;
     const allowances = Number(otherAllowances) || 0;
     const pool = Number(serviceChargeBonus) || 0;
     const bonus = Number(incentiveBonus) || 0;
     const ot = (Number(overtimeHours) || 0) * (Number(overtimeRate) || 0);
     const deductions = Number(otherDeductions) || 0;
 
-    // Sri Lankan law: EPF/ETF Base = Basic Salary + Fixed Cost of Living & Budgetary Relief Allowances
-    // (Overtime, service charge tips, and ad-hoc festive bonuses are excluded from the EPF base)
+    // EPF Base Earnings
     const epfLiableEarnings = Number((basic + bra + allowances).toFixed(2));
 
-    // Statutory Contributions
-    const epfEmployee = Number((epfLiableEarnings * 0.08).toFixed(2)); // 8% deducted from employee
-    const epfEmployer = Number((epfLiableEarnings * 0.12).toFixed(2)); // 12% paid by employer
-    const etfEmployer = Number((epfLiableEarnings * 0.03).toFixed(2)); // 3% paid by employer
-    const totalEpfFund = Number((epfEmployee + epfEmployer).toFixed(2)); // 20% into Central Bank EPF
+    // Calculate EPF/ETF ONLY if epfEtfEnabled is true; otherwise 0.00
+    const epfEmployee = epfEtfEnabled ? Number((epfLiableEarnings * 0.08).toFixed(2)) : 0;
+    const epfEmployer = epfEtfEnabled ? Number((epfLiableEarnings * 0.12).toFixed(2)) : 0;
+    const etfEmployer = epfEtfEnabled ? Number((epfLiableEarnings * 0.03).toFixed(2)) : 0;
+    const totalEpfFund = Number((epfEmployee + epfEmployer).toFixed(2));
 
-    // Gross & Net Salary
+    // Gross & Net Calculations
     const grossEarnings = Number((basic + bra + allowances + pool + bonus + ot).toFixed(2));
     const totalDeductions = Number((epfEmployee + deductions).toFixed(2));
     const netSalary = Number((grossEarnings - totalDeductions).toFixed(2));
-
-    // Total Employer Cost to Company (CTC)
     const costToCompany = Number((grossEarnings + epfEmployer + etfEmployer).toFixed(2));
 
     return {
+      epfEtfEnabled,
       basic,
       bra,
       allowances,
@@ -8242,6 +8242,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             {/* Sri Lankan Statutory Payslip Print Slip */}
             {activePrintSlip.type === 'PAYSLIP_PRINT' && (
               <div className="space-y-3 font-mono text-xs">
+                {/* Header */}
                 <div className="text-center border-b-2 border-dashed border-black pb-2">
                   <h2 className="font-black text-sm uppercase">{settings.restaurantName}</h2>
                   <p className="text-[10px]">{settings.address}</p>
@@ -8249,6 +8250,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <p className="text-[10px]">Period: {activePrintSlip.data.period} • Slip #{activePrintSlip.data.id}</p>
                 </div>
 
+                {/* Employee Info */}
                 <div className="space-y-1 border-b border-black pb-2 text-[11px]">
                   <div className="flex justify-between">
                     <span>Employee:</span>
@@ -8258,8 +8260,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     <span>Designation:</span>
                     <span>{activePrintSlip.data.role}</span>
                   </div>
+                  <div className="flex justify-between text-[10px]">
+                    <span>Statutory Status:</span>
+                    <span className="font-bold uppercase">
+                      {activePrintSlip.data.breakdown?.epfEtfEnabled !== false ? 'EPF / ETF Enrolled' : 'Statutory Exempt (No EPF)'}
+                    </span>
+                  </div>
                 </div>
 
+                {/* Earnings Section */}
                 <div className="space-y-1 border-b border-dashed border-black pb-2 text-[11px]">
                   <p className="font-bold text-[10px] uppercase">=== EARNINGS ===</p>
                   <div className="flex justify-between">
@@ -8282,6 +8291,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       <span>+{settings.currency} {activePrintSlip.data.breakdown.serviceChargeBonus.toFixed(2)}</span>
                     </div>
                   )}
+                  {activePrintSlip.data.breakdown?.incentiveBonus > 0 && (
+                    <div className="flex justify-between font-bold">
+                      <span>Performance Bonus:</span>
+                      <span>+{settings.currency} {activePrintSlip.data.breakdown.incentiveBonus.toFixed(2)}</span>
+                    </div>
+                  )}
                   {activePrintSlip.data.breakdown?.overtimePay > 0 && (
                     <div className="flex justify-between">
                       <span>Overtime Pay:</span>
@@ -8294,14 +8309,35 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 </div>
 
+                {/* Deductions Section */}
                 <div className="space-y-1 border-b border-dashed border-black pb-2 text-[11px]">
                   <p className="font-bold text-[10px] uppercase">=== DEDUCTIONS ===</p>
-                  <div className="flex justify-between">
-                    <span>EPF (Employee 8%):</span>
-                    <span>-{settings.currency} {activePrintSlip.data.breakdown?.epfEmployee.toFixed(2)}</span>
-                  </div>
+                  {activePrintSlip.data.breakdown?.epfEtfEnabled !== false ? (
+                    <>
+                      <div className="flex justify-between text-[10px] text-slate-600">
+                        <span>EPF Base Earnings:</span>
+                        <span>{settings.currency} {activePrintSlip.data.breakdown?.epfLiableEarnings.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between font-bold text-rose-700">
+                        <span>EPF (Employee 8%):</span>
+                        <span>-{settings.currency} {activePrintSlip.data.breakdown?.epfEmployee.toFixed(2)}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex justify-between italic text-[10px] text-slate-600">
+                      <span>EPF (Employee 8%):</span>
+                      <span>Exempt (0.00)</span>
+                    </div>
+                  )}
+                  {activePrintSlip.data.breakdown?.otherDeductions > 0 && (
+                    <div className="flex justify-between text-rose-700">
+                      <span>Other Deductions:</span>
+                      <span>-{settings.currency} {activePrintSlip.data.breakdown.otherDeductions.toFixed(2)}</span>
+                    </div>
+                  )}
                 </div>
 
+                {/* Take-Home Pay */}
                 <div className="space-y-1 border-b-2 border-black pb-2 text-xs">
                   <div className="flex justify-between font-black text-sm">
                     <span>NET TAKE-HOME PAY:</span>
@@ -8309,18 +8345,31 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 </div>
 
-                <div className="space-y-1 border-b border-dotted border-black pb-2 text-[10px] text-slate-700">
-                  <p className="font-bold uppercase">=== EMPLOYER STATUTORY CONTRIBUTIONS ===</p>
-                  <div className="flex justify-between">
-                    <span>EPF (Employer 12%):</span>
-                    <span>{settings.currency} {activePrintSlip.data.breakdown?.epfEmployer.toFixed(2)}</span>
+                {/* Employer Statutory Remittances (Only printed if EPF is active) */}
+                {activePrintSlip.data.breakdown?.epfEtfEnabled !== false && (
+                  <div className="space-y-1 border-b border-dotted border-black pb-2 text-[10px] text-slate-700">
+                    <p className="font-bold uppercase">=== EMPLOYER STATUTORY CONTRIBUTIONS ===</p>
+                    <div className="flex justify-between">
+                      <span>EPF (Employer 12%):</span>
+                      <span>{settings.currency} {activePrintSlip.data.breakdown?.epfEmployer.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>ETF (Employer 3%):</span>
+                      <span>{settings.currency} {activePrintSlip.data.breakdown?.etfEmployer.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold border-t border-dotted border-black pt-0.5">
+                      <span>Total Statutory Fund (23%):</span>
+                      <span>
+                        {settings.currency} {(
+                          (activePrintSlip.data.breakdown?.totalEpfFund || 0) + 
+                          (activePrintSlip.data.breakdown?.etfEmployer || 0)
+                        ).toFixed(2)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span>ETF (Employer 3%):</span>
-                    <span>{settings.currency} {activePrintSlip.data.breakdown?.etfEmployer.toFixed(2)}</span>
-                  </div>
-                </div>
+                )}
 
+                {/* Signatures */}
                 <div className="pt-3 text-[9px] flex justify-between">
                   <div className="text-center">
                     <p>___________________</p>
@@ -9869,6 +9918,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             {(() => {
               const breakdown = calculateSriLankanPayroll(payrollInputForm);
               const selectedStaff = staffList.find(s => s.id === payrollInputForm.staffId) || staffList[0];
+              const isEpfActive = payrollInputForm.epfEtfEnabled !== false;
 
               return (
                 <form
@@ -9898,7 +9948,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     recordAuditLog(
                       'PAYROLL_GENERATED',
                       newSlip.id,
-                      `Issued statutory pay slip for ${selectedStaff.name} (${newSlip.period}): Net Take-Home ${settings.currency} ${breakdown.netSalary.toFixed(2)}`
+                      `Issued ${isEpfActive ? 'Statutory EPF' : 'Exempt'} pay slip for ${selectedStaff.name} (${newSlip.period}): Net Take-Home ${settings.currency} ${breakdown.netSalary.toFixed(2)}`
                     );
 
                     setProcessPayModalOpen(false);
@@ -9931,9 +9981,43 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </div>
                   </div>
 
+                  {/* EPF / ETF APPLICABILITY TOGGLE */}
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-between gap-3">
+                    <div>
+                      <span className="text-xs font-black text-slate-900 block">
+                        Sri Lanka EPF / ETF Deductions
+                      </span>
+                      <p className="text-[10px] text-slate-500">
+                        {isEpfActive 
+                          ? 'Employee 8% deduction + Employer 12% EPF & 3% ETF active' 
+                          : 'Exempt / Non-EPF (Casual, Probationary, or Contractor)'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setPayrollInputForm(prev => ({ ...prev, epfEtfEnabled: !isEpfActive }))}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1.5 ${
+                        isEpfActive
+                          ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                          : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                      }`}
+                    >
+                      {isEpfActive ? (
+                        <>
+                          <Check className="h-3.5 w-3.5 stroke-[3]" />
+                          <span>EPF Active</span>
+                        </>
+                      ) : (
+                        <span>Exempt (No EPF)</span>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* EARNINGS & ALLOWANCES */}
                   <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
                     <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
-                      1. Earnings &amp; Allowances (LKR)
+                      1. Earnings &amp; Allowances ({settings.currency})
                     </span>
 
                     <div className="grid grid-cols-2 gap-3">
@@ -9962,7 +10046,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                     <div className="grid grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Fixed Allowances (EPF)</label>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                          Fixed Allowances {isEpfActive && '(Liable to EPF)'}
+                        </label>
                         <input
                           type="number"
                           step="0.01"
@@ -9984,6 +10070,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </div>
                   </div>
 
+                  {/* OVERTIME & BONUSES */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-bold text-slate-600 mb-1">Overtime Hours (hrs)</label>
@@ -10007,40 +10094,56 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </div>
                   </div>
 
-                  <div className="p-3 bg-slate-900 text-white rounded-2xl space-y-1.5 text-xs font-mono">
+                  {/* LIVE BREAKDOWN PREVIEW */}
+                  <div className="p-3.5 bg-slate-900 text-white rounded-2xl space-y-1.5 text-xs font-mono">
                     <div className="flex justify-between text-slate-400">
-                      <span>EPF Liable Base:</span>
-                      <span>{settings.currency} {breakdown.epfLiableEarnings.toFixed(2)}</span>
+                      <span>Gross Earnings:</span>
+                      <span>{settings.currency} {breakdown.grossEarnings.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between text-rose-400">
-                      <span>EPF Employee (8%):</span>
-                      <span>-{settings.currency} {breakdown.epfEmployee.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-indigo-300">
-                      <span>EPF Employer (12%):</span>
-                      <span>+{settings.currency} {breakdown.epfEmployer.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-emerald-300">
-                      <span>ETF Employer (3%):</span>
-                      <span>+{settings.currency} {breakdown.etfEmployer.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between pt-1 border-t border-slate-700 text-base font-black text-emerald-400">
+
+                    {isEpfActive ? (
+                      <>
+                        <div className="flex justify-between text-slate-400 text-[11px]">
+                          <span>EPF Liable Base:</span>
+                          <span>{settings.currency} {breakdown.epfLiableEarnings.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-rose-400">
+                          <span>EPF Employee (8%):</span>
+                          <span>-{settings.currency} {breakdown.epfEmployee.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-indigo-300">
+                          <span>EPF Employer (12%):</span>
+                          <span>+{settings.currency} {breakdown.epfEmployer.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-emerald-300">
+                          <span>ETF Employer (3%):</span>
+                          <span>+{settings.currency} {breakdown.etfEmployer.toFixed(2)}</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="py-1 text-[11px] text-amber-400/90 italic flex items-center justify-between">
+                        <span>Statutory EPF / ETF:</span>
+                        <span>Exempt (0.00)</span>
+                      </div>
+                    )}
+
+                    <div className="flex justify-between pt-2 border-t border-slate-700 text-base font-black text-emerald-400">
                       <span>Net Employee Take-Home:</span>
                       <span>{settings.currency} {breakdown.netSalary.toFixed(2)}</span>
                     </div>
                   </div>
 
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-2 pt-1">
                     <button
                       type="button"
                       onClick={() => setProcessPayModalOpen(false)}
-                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-colors"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                      className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors"
                     >
                       Issue &amp; Print Payslip
                     </button>
