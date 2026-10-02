@@ -51,7 +51,8 @@ import {
   Download,
   Building,
   HardDrive,
-  Mail
+  Mail,
+  Briefcase
 } from 'lucide-react';
 import { syncToCloud, subscribeToCloud } from './firebase'; // <-- ADD THIS LINE
 import * as pdfjsLib from 'pdfjs-dist';
