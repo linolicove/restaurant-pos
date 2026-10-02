@@ -345,6 +345,7 @@ export default function App() {
   const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_archive_v1', []);
   const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_archive_v1', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
+  const [editingPayrollId, setEditingPayrollId] = useState(null);
   
   // Payroll Creation Modal Form
   const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
@@ -525,7 +526,7 @@ export default function App() {
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [voidModalOpen, setVoidModalOpen] = useState(false);
   const [voidPayload, setVoidPayload] = useState({ item: null, reason: '' });
-  const [editingPayrollId, setEditingPayrollId] = useState(null);
+  
 
   // Bill Editing Modal (Billing queue)
   const [editBillModalOpen, setEditBillModalOpen] = useState(false);
@@ -5793,10 +5794,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           <th className="py-2.5 px-3">Period</th>
                           <th className="py-2.5 px-3 text-right">Basic + Allowances</th>
                           <th className="py-2.5 px-3 text-right">EPF Base</th>
-                          <th className="py-2.5 px-3 text-right text-rose-600">EPF 8% (Employee)</th>
+                          <th className="py-2.5 px-3 text-right text-rose-600">EPF 8%</th>
                           <th className="py-2.5 px-3 text-right text-emerald-600">Service Pool</th>
                           <th className="py-2.5 px-3 text-right font-black">Net Take-Home</th>
-                          <th className="py-2.5 px-3 text-right">Print Slip</th>
+                          <th className="py-2.5 px-3 text-right">Actions</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -5807,46 +5808,109 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             </td>
                           </tr>
                         ) : (
-                          payrollRecords.map(rec => (
-                            <tr key={rec.id} className="hover:bg-slate-50">
-                              <td className="py-3 px-3 font-mono font-bold text-slate-800">{rec.id}</td>
-                              <td className="py-3 px-3">
-                                <span className="font-bold text-slate-900 block">{rec.staffName}</span>
-                                <span className="text-[10px] text-slate-400">{rec.role}</span>
-                              </td>
-                              <td className="py-3 px-3 font-mono font-bold text-slate-700">{rec.period}</td>
-                              <td className="py-3 px-3 text-right font-mono">
-                                {settings.currency} {((rec.breakdown?.basic || 0) + (rec.breakdown?.bra || 0) + (rec.breakdown?.allowances || 0)).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
-                                {settings.currency} {(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono text-rose-600 font-bold">
-                                -{settings.currency} {(rec.breakdown?.epfEmployee || 0).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
-                                +{settings.currency} {(rec.breakdown?.serviceChargeBonus || 0).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-right font-mono font-black text-slate-950 text-sm">
-                                {settings.currency} {(rec.breakdown?.netSalary || rec.netPay || 0).toFixed(2)}
-                              </td>
-                              <td className="py-3 px-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    triggerAutoPrint({
-                                      type: 'PAYSLIP_PRINT',
-                                      data: rec
-                                    }, `Payslip ${rec.id} - ${rec.staffName}`);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
-                                  title="Print Payslip"
-                                >
-                                  <Printer className="h-4 w-4" />
-                                </button>
-                              </td>
-                            </tr>
-                          ))
+                          payrollRecords.map(rec => {
+                            const canManage = currentUser.role === 'Administrator' || currentUser.role === 'Manager';
+
+                            return (
+                              <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-3 px-3 font-mono font-bold text-slate-800">{rec.id}</td>
+                                <td className="py-3 px-3">
+                                  <span className="font-bold text-slate-900 block">{rec.staffName}</span>
+                                  <span className="text-[10px] text-slate-400">{rec.role}</span>
+                                </td>
+                                <td className="py-3 px-3 font-mono font-bold text-slate-700">{rec.period}</td>
+                                <td className="py-3 px-3 text-right font-mono">
+                                  {settings.currency} {((rec.breakdown?.basic || 0) + (rec.breakdown?.bra || 0) + (rec.breakdown?.allowances || 0)).toFixed(2)}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
+                                  {rec.breakdown?.epfEtfEnabled !== false 
+                                    ? `${settings.currency} ${(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}`
+                                    : <span className="text-slate-400 italic text-[10px]">Exempt</span>}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-rose-600 font-bold">
+                                  {rec.breakdown?.epfEtfEnabled !== false 
+                                    ? `-${settings.currency} ${(rec.breakdown?.epfEmployee || 0).toFixed(2)}`
+                                    : '0.00'}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
+                                  +{(rec.breakdown?.serviceChargeBonus || 0) > 0 ? `${settings.currency} ${(rec.breakdown?.serviceChargeBonus || 0).toFixed(2)}` : '0.00'}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 text-sm">
+                                  {settings.currency} {(rec.breakdown?.netSalary || rec.netPay || 0).toFixed(2)}
+                                </td>
+                                <td className="py-3 px-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Print */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerAutoPrint({
+                                          type: 'PAYSLIP_PRINT',
+                                          data: rec
+                                        }, `Payslip ${rec.id} - ${rec.staffName}`);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                                      title="Print Payslip"
+                                    >
+                                      <Printer className="h-4 w-4" />
+                                    </button>
+
+                                    {/* Edit */}
+                                    {canManage && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setPayrollInputForm({
+                                            staffId: rec.staffId,
+                                            period: rec.period,
+                                            epfEtfEnabled: rec.breakdown?.epfEtfEnabled !== false,
+                                            basicSalary: rec.breakdown?.basic || 35000,
+                                            budgetaryAllowance: rec.breakdown?.bra || 2500,
+                                            otherAllowances: rec.breakdown?.allowances || 0,
+                                            serviceChargeBonus: rec.breakdown?.serviceChargeBonus || 0,
+                                            incentiveBonus: rec.breakdown?.incentiveBonus || 0,
+                                            overtimeHours: (rec.breakdown?.overtimePay && rec.breakdown?.overtimeRate) 
+                                              ? (rec.breakdown.overtimePay / rec.breakdown.overtimeRate) 
+                                              : 0,
+                                            overtimeRate: 250,
+                                            otherDeductions: rec.breakdown?.otherDeductions || 0,
+                                            notes: rec.notes || ''
+                                          });
+                                          setEditingPayrollId(rec.id);
+                                          setProcessPayModalOpen(true);
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors"
+                                        title="Edit Payslip"
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </button>
+                                    )}
+
+                                    {/* Delete */}
+                                    {currentUser.role === 'Administrator' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`Delete pay slip ${rec.id} for ${rec.staffName}? This action will be recorded in the audit log.`)) {
+                                            setPayrollRecords(prev => prev.filter(r => r.id !== rec.id));
+                                            recordAuditLog(
+                                              'ADMIN_DELETE_PAYSLIP',
+                                              rec.id,
+                                              `Admin ${currentUser.name} deleted pay slip ${rec.id} for ${rec.staffName} (${rec.period})`
+                                            );
+                                          }
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                        title="Delete Payslip"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
