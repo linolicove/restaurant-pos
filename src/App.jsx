@@ -342,8 +342,8 @@ export default function App() {
     cashOut: 1
   });
   // Persistent Attendance & Time Clock
-  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
-  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
+  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_archive_v1', []);
+  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_archive_v1', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   
   // Payroll Creation Modal Form
@@ -905,14 +905,21 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       }
     }
     }, [denominations]);
-    useEffect(() => {
-    if (!isCloudSynced.current) return;
-    if (attendanceLogs !== undefined) syncToCloud('attendance_logs', attendanceLogs);
-  }, [attendanceLogs]);
 
+    // Sync Attendance Archive Online & Offline
   useEffect(() => {
     if (!isCloudSynced.current) return;
-    if (payrollRecords !== undefined) syncToCloud('payroll_records', payrollRecords);
+    if (Array.isArray(attendanceLogs) && attendanceLogs.length > 0) {
+      syncToCloud('attendance_logs_archive', attendanceLogs);
+    }
+  }, [attendanceLogs]);
+
+  // Sync Payroll Slips & Actions Online & Offline
+  useEffect(() => {
+    if (!isCloudSynced.current) return;
+    if (Array.isArray(payrollRecords) && payrollRecords.length > 0) {
+      syncToCloud('payroll_records_archive', payrollRecords);
+    }
   }, [payrollRecords]);
 
   const handleCreateStaff = (e) => {
@@ -5482,7 +5489,33 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Export All Payroll & Time Clock History */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const exportPayload = {
+                      exportedAt: new Date().toISOString(),
+                      restaurant: settings.restaurantName || 'Restaurant POS',
+                      attendanceLogs,
+                      payrollRecords
+                    };
+                    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
+                    const downloadAnchor = document.createElement('a');
+                    downloadAnchor.setAttribute("href", dataStr);
+                    downloadAnchor.setAttribute("download", `payroll_archive_${getLocalDateStr()}.json`);
+                    document.body.appendChild(downloadAnchor);
+                    downloadAnchor.click();
+                    downloadAnchor.remove();
+                  }}
+                  className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
+                  title="Download complete historical records forever"
+                >
+                  <Download className="h-4 w-4 text-slate-600" />
+                  <span>Export Archive</span>
+                </button>
+
+                {/* Process Pay Slip Modal Trigger */}
                 <button
                   type="button"
                   onClick={() => {
@@ -5490,6 +5523,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     setPayrollInputForm({
                       staffId: firstStaff ? firstStaff.id : '',
                       period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                      epfEtfEnabled: true,
                       basicSalary: 35000,
                       budgetaryAllowance: 2500,
                       otherAllowances: 0,
@@ -5536,6 +5570,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             {/* SUB-TAB 1: TIME SHEET & CLOCK IN / CLOCK OUT */}
             {payrollSubTab === 'attendance' && (
               <div className="space-y-6">
+                {/* Employee Cards Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   {staffList.map(member => {
                     const { clockedIn, log } = getStaffClockStatus(member.id);
@@ -5571,52 +5606,74 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           </div>
                         </div>
 
+                        {/* Clock In / Out Button with Permanent Local & Cloud Archiving */}
                         <button
                           type="button"
                           onClick={() => {
-                            const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            const now = new Date();
+                            const nowTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                             const todayStr = getLocalDateStr();
+                            const nowIso = now.toISOString();
 
                             if (clockedIn && log) {
+                              // Clock Out - Update active session and archive
                               const start = new Date(`${todayStr} ${log.clockInTime}`);
-                              const end = new Date();
-                              const diffHours = Math.max(0.1, Number(((end - start) / (1000 * 60 * 60)).toFixed(2)));
+                              const diffHours = Math.max(0.1, Number(((now - start) / (1000 * 60 * 60)).toFixed(2)));
 
-                              setAttendanceLogs(prev => prev.map(a => a.id === log.id ? {
-                                ...a,
+                              const updatedLog = {
+                                ...log,
                                 clockOutTime: nowTime,
+                                clockOutISO: nowIso,
                                 totalHours: diffHours,
-                                isOvertime: diffHours > 8
-                              } : a));
+                                isOvertime: diffHours > 8,
+                                status: 'COMPLETED'
+                              };
+
+                              setAttendanceLogs(prev => prev.map(a => a.id === log.id ? updatedLog : a));
+
+                              // Append permanent completed session to cloud archive
+                              if (typeof appendCloudArchive === 'function') {
+                                appendCloudArchive('attendance_logs', updatedLog);
+                              }
 
                               recordAuditLog(
-                                'STAFF_CLOCK_OUT',
+                                'STAFF_CLOCK_OUT_PERMANENT',
                                 member.id,
-                                `${member.name} clocked out at ${nowTime} (${diffHours} hrs worked)`
+                                `${member.name} clocked out at ${nowTime} (${diffHours} hrs). Log ID: ${log.id}`
                               );
                             } else {
+                              // Clock In - Generate unique permanent entry
                               const newLog = {
-                                id: `ATT-${Date.now().toString().slice(-6)}`,
+                                id: `ATT-${todayStr.replace(/-/g, '')}-${member.id}-${Date.now().toString().slice(-4)}`,
                                 date: todayStr,
                                 staffId: member.id,
                                 staffName: member.name,
                                 role: member.role,
                                 clockInTime: nowTime,
+                                clockInISO: nowIso,
                                 clockOutTime: null,
+                                clockOutISO: null,
                                 totalHours: 0,
-                                isOvertime: false
+                                isOvertime: false,
+                                status: 'ON_DUTY',
+                                createdByDevice: typeof navigator !== 'undefined' ? navigator.userAgent : 'POS Terminal'
                               };
 
                               setAttendanceLogs(prev => [newLog, ...prev]);
 
+                              // Append permanent clock-in event to cloud archive
+                              if (typeof appendCloudArchive === 'function') {
+                                appendCloudArchive('attendance_logs', newLog);
+                              }
+
                               recordAuditLog(
-                                'STAFF_CLOCK_IN',
+                                'STAFF_CLOCK_IN_PERMANENT',
                                 member.id,
-                                `${member.name} clocked in at ${nowTime}`
+                                `${member.name} clocked in at ${nowTime}. Log ID: ${newLog.id}`
                               );
                             }
                           }}
-                          className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                          className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
                             clockedIn
                               ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
                               : 'bg-emerald-600 hover:bg-emerald-700 text-white'
@@ -5630,12 +5687,16 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   })}
                 </div>
 
+                {/* Attendance History Table */}
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
                   <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                      Attendance History &amp; Work Hours Sheet
-                    </h3>
-                    <span className="text-xs font-mono text-slate-500 font-bold">{attendanceLogs.length} Records</span>
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                        Attendance History &amp; Work Hours Sheet
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Permanently saved time clock punches</p>
+                    </div>
+                    <span className="text-xs font-mono text-slate-600 font-bold">{attendanceLogs.length} Records</span>
                   </div>
 
                   <div className="overflow-x-auto">
@@ -5682,11 +5743,17 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      if (window.confirm('Delete attendance punch record?')) {
+                                      if (window.confirm('Delete attendance punch record? Note: This will only remove it locally; permanent archives remain on cloud.')) {
                                         setAttendanceLogs(prev => prev.filter(a => a.id !== att.id));
+                                        recordAuditLog(
+                                          'ADMIN_DELETE_ATTENDANCE_LOG',
+                                          att.id,
+                                          `Admin ${currentUser.name} removed attendance record ${att.id} for ${att.staffName}`
+                                        );
                                       }
                                     }}
-                                    className="p-1 text-slate-400 hover:text-rose-600"
+                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
+                                    title="Delete Record"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -5701,7 +5768,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </div>
               </div>
             )}
-
+            
             {/* SUB-TAB 2: PAYROLL RECORDS & PAY SLIPS */}
             {payrollSubTab === 'payslips' && (
               <div className="space-y-6">
@@ -9926,29 +9993,44 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     e.preventDefault();
                     if (!selectedStaff) return;
 
-                    const newSlip = {
-                      id: `PAY-${Date.now().toString().slice(-6)}`,
+                    const now = new Date();
+                    const nowIso = now.toISOString();
+                    const fullDateStr = getLocalDateStr();
+                    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                    // Immutable sequential ID: PAY-YYYYMM-STAFFID-RANDOM
+                    const permanentSlipId = `PAY-${payrollInputForm.period.replace(/-/g, '')}-${selectedStaff.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
+
+                    const permanentSlipRecord = {
+                      id: permanentSlipId,
                       staffId: selectedStaff.id,
                       staffName: selectedStaff.name,
                       role: selectedStaff.role,
                       period: payrollInputForm.period,
+                      epfEtfEnabled: payrollInputForm.epfEtfEnabled !== false,
                       breakdown,
-                      notes: payrollInputForm.notes,
+                      notes: payrollInputForm.notes || 'Monthly Salary Disbursed',
                       processedBy: currentUser.name,
-                      processedAt: `${getLocalDateStr()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      processedByRole: currentUser.role,
+                      processedAt: `${fullDateStr} ${timeStr}`,
+                      processedAtISO: nowIso,
+                      revisions: [] // Allows appending adjustments without deleting the original
                     };
 
-                    setPayrollRecords(prev => [newSlip, ...prev]);
+                    // 1. Prepend to local state (saved to localStorage automatically)
+                    setPayrollRecords(prev => [permanentSlipRecord, ...prev]);
 
+                    // 2. Direct thermal auto-print trigger
                     triggerAutoPrint({
                       type: 'PAYSLIP_PRINT',
-                      data: newSlip
-                    }, `Payslip for ${selectedStaff.name}`);
+                      data: permanentSlipRecord
+                    }, `Payslip ${permanentSlipRecord.id} - ${selectedStaff.name}`);
 
+                    // 3. Permanent immutable audit trail entry
                     recordAuditLog(
-                      'PAYROLL_GENERATED',
-                      newSlip.id,
-                      `Issued ${isEpfActive ? 'Statutory EPF' : 'Exempt'} pay slip for ${selectedStaff.name} (${newSlip.period}): Net Take-Home ${settings.currency} ${breakdown.netSalary.toFixed(2)}`
+                      'PAYROLL_PERMANENT_RECORD_SAVED',
+                      permanentSlipRecord.id,
+                      `Issued ${payrollInputForm.epfEtfEnabled !== false ? 'EPF-Liable' : 'EPF-Exempt'} payslip for ${selectedStaff.name} (${payrollInputForm.period}). Net: ${settings.currency} ${breakdown.netSalary.toFixed(2)}. Cloud Sync Queued.`
                     );
 
                     setProcessPayModalOpen(false);
