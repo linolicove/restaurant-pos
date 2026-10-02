@@ -461,6 +461,7 @@ export default function App() {
   const [serviceChargeActive, setServiceChargeActive] = useState(true);
   const [taxActive, setTaxActive] = useState(false);
   const [discountPercent, setDiscountPercent] = useState(0);
+  const [mobileCartDrawerOpen, setMobileCartDrawerOpen] = useState(false);
 
   // Date Filter State for Reports
   const [reportStartDate, setReportStartDate] = useState(getLocalDateStr());
@@ -2314,23 +2315,22 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           </div>
         </header>
 
-{/* VIEW 1: POS TERMINAL */}
+{/* VIEW 1: RESPONSIVE POS TERMINAL (MOBILE, TABLET & DESKTOP) */}
         {activeTab === 'pos' && (
-          <div className="flex-1 flex overflow-hidden">
+          <div className="flex-1 flex flex-col lg:flex-row overflow-hidden relative min-h-0">
             {/* Catalog Grid Area */}
-            <div className="flex-1 flex flex-col p-5 overflow-hidden min-h-0">
-              
-              {/* TOP BAR: HIGH-CONTRAST DARK DOCK FOR CATEGORIES & CONTROLS */}
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5 mb-4 shrink-0 shadow-md flex items-center gap-3">
-                {/* CATEGORY SELECTOR BAR (EXPANDED HORIZONTAL SCROLL & HIGH VISIBILITY BLOCK LETTERS) */}
+            <div className="flex-1 flex flex-col p-3 sm:p-5 overflow-hidden min-h-0">
+              {/* TOP DOCK: CATEGORIES, DENSITY, SEARCH */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2 sm:p-2.5 mb-3 sm:mb-4 shrink-0 shadow-md flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                {/* Horizontal Scrollable Category Bar */}
                 <div 
-                  className="flex-1 min-w-0 overflow-x-auto pb-1.5 pt-0.5 scrollbar-thin"
+                  className="flex-1 min-w-0 overflow-x-auto pb-1 pt-0.5 scrollbar-thin"
                   style={{
                     scrollbarWidth: 'thin',
                     scrollbarColor: '#475569 #1e293b'
                   }}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     {categoriesList.map((cat) => {
                       const count = cat === 'All' 
                         ? menuItems.length 
@@ -2342,7 +2342,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           key={cat}
                           type="button"
                           onClick={() => setSelectedCategory(cat)}
-                          className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-2 cursor-pointer shadow-xs ${
+                          className={`px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-black text-[11px] sm:text-xs uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5 sm:gap-2 cursor-pointer shadow-xs ${
                             isSelected
                               ? 'bg-[#ff5500] text-white shadow-orange-500/40 ring-2 ring-[#ff5500]/50'
                               : 'bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 hover:border-slate-600'
@@ -2350,7 +2350,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         >
                           <span>{cat}</span>
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                            className={`px-1.5 py-0.2 rounded-full text-[9px] sm:text-[10px] font-black ${
                               isSelected
                                 ? 'bg-black/30 text-white'
                                 : 'bg-slate-900/80 text-slate-300 border border-slate-700/60'
@@ -2364,20 +2364,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 </div>
 
-                {/* CONTROLS SEPARATOR */}
-                <div className="h-8 w-px bg-slate-800 shrink-0" />
-
-                {/* RIGHT CONTROLS: DENSITY SWITCHER + SEARCH */}
+                {/* Right Controls: View Switcher & Search Bar */}
                 <div className="flex items-center gap-2 shrink-0">
-                  {/* Density switcher */}
-                  <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl p-0.5 shadow-inner">
+                  {/* Density switcher (hidden on very small phones) */}
+                  <div className="hidden sm:flex items-center bg-slate-800 border border-slate-700 rounded-xl p-0.5 shadow-inner">
                     <button
                       type="button"
                       onClick={() => setPosViewMode('grid')}
                       className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                        posViewMode === 'grid' 
-                          ? 'bg-[#ff5500] text-white shadow-xs' 
-                          : 'text-slate-400 hover:text-white'
+                        posViewMode === 'grid' ? 'bg-[#ff5500] text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                       title="Visual Grid"
                     >
@@ -2387,9 +2382,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       type="button"
                       onClick={() => setPosViewMode('compact')}
                       className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                        posViewMode === 'compact' 
-                          ? 'bg-[#ff5500] text-white shadow-xs' 
-                          : 'text-slate-400 hover:text-white'
+                        posViewMode === 'compact' ? 'bg-[#ff5500] text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                       title="Compact Tiles"
                     >
@@ -2399,9 +2392,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       type="button"
                       onClick={() => setPosViewMode('list')}
                       className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-                        posViewMode === 'list' 
-                          ? 'bg-[#ff5500] text-white shadow-xs' 
-                          : 'text-slate-400 hover:text-white'
+                        posViewMode === 'list' ? 'bg-[#ff5500] text-white shadow-xs' : 'text-slate-400 hover:text-white'
                       }`}
                       title="Compact List"
                     >
@@ -2410,21 +2401,21 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
 
                   {/* Search Input */}
-                  <div className="relative w-48">
+                  <div className="relative flex-1 sm:w-48">
                     <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                     <input
                       type="text"
                       value={menuSearchQuery}
                       onChange={e => setMenuSearchQuery(e.target.value)}
-                      placeholder="Search 150+ items..."
-                      className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#ff5500] focus:ring-1 focus:ring-[#ff5500]"
+                      placeholder="Search items..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder-slate-400 focus:outline-none focus:border-[#ff5500]"
                     />
                   </div>
                 </div>
               </div>
 
-              {/* Responsive fluid grid with multi-breakpoint scaling */}
-              <div className="flex-1 overflow-y-auto pr-1 min-h-0">
+              {/* Responsive Catalog Items */}
+              <div className="flex-1 overflow-y-auto pr-1 min-h-0 pb-20 lg:pb-0">
                 {(() => {
                   const filteredDishes = menuItems.filter(item => {
                     const matchCat = selectedCategory === 'All' || item.category === selectedCategory;
@@ -2444,8 +2435,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                   if (posViewMode === 'compact') {
                     return (
-                      <div className="bg-slate-100/70 p-3 rounded-2xl border border-slate-200 shadow-inner">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-2.5">
+                      <div className="bg-slate-100/70 p-2 sm:p-3 rounded-2xl border border-slate-200 shadow-inner">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-6 gap-2 sm:gap-2.5">
                           {filteredDishes.map(dish => {
                             const { portions } = calculateDishAvailability(dish.recipe);
                             const isInCart = cart.some(i => i.id === dish.id);
@@ -2455,30 +2446,26 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                 key={dish.id}
                                 type="button"
                                 onClick={() => handleAddToCart(dish)}
-                                className={`p-3 rounded-xl border-2 text-left flex flex-col justify-between transition-all bg-white cursor-pointer active:scale-95 shadow-xs hover:shadow-md ${
+                                className={`p-2.5 sm:p-3 rounded-xl border-2 text-left flex flex-col justify-between transition-all bg-white cursor-pointer active:scale-95 shadow-xs ${
                                   isInCart
                                     ? 'border-[#ff5500] ring-2 ring-[#ff5500]/25 shadow-orange-500/10'
                                     : 'border-slate-300 hover:border-slate-400'
                                 }`}
                               >
                                 <div>
-                                  <span className={`text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                    dish.department === 'Bar' 
-                                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-200' 
-                                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                  <span className={`text-[8px] sm:text-[9px] font-black px-1.5 py-0.2 rounded uppercase ${
+                                    dish.department === 'Bar' ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700'
                                   }`}>
                                     {dish.department}
                                   </span>
-                                  <p className="font-black text-xs text-slate-950 mt-1.5 line-clamp-1">
-                                    {dish.name}
-                                  </p>
+                                  <p className="font-black text-xs text-slate-950 mt-1 line-clamp-1">{dish.name}</p>
                                 </div>
-                                <div className="mt-2.5 pt-2 border-t border-slate-100 flex justify-between items-center text-[10px]">
+                                <div className="mt-2 pt-1.5 border-t border-slate-100 flex justify-between items-center text-[10px]">
                                   <span className="font-mono font-black text-[#ff5500]">
                                     {settings.currency} {dish.price.toFixed(0)}
                                   </span>
                                   <span className={`font-bold ${portions <= 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
-                                    {portions <= 0 ? '0 ready' : `${portions} left`}
+                                    {portions <= 0 ? '0 left' : `${portions} left`}
                                   </span>
                                 </div>
                               </button>
@@ -2488,6 +2475,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       </div>
                     );
                   }
+
                   if (posViewMode === 'list') {
                     return (
                       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden divide-y divide-slate-100">
@@ -2496,18 +2484,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           return (
                             <div
                               key={dish.id}
-                              onClick={() => {
-                                setCart(prev => {
-                                  const existing = prev.find(i => i.id === dish.id);
-                                  if (existing) {
-                                    return prev.map(i => i.id === dish.id ? { ...i, qty: i.qty + 1 } : i);
-                                  }
-                                  return [...prev, { ...dish, cartItemId: `cart_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`, qty: 1, notes: '' }];
-                                });
-                              }}
+                              onClick={() => handleAddToCart(dish)}
                               className="p-3 flex items-center justify-between hover:bg-slate-50 cursor-pointer transition-colors"
                             >
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2.5 sm:gap-3">
                                 <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${
                                   dish.department === 'Bar' ? 'bg-indigo-100 text-indigo-700' : 'bg-rose-100 text-rose-700'
                                 }`}>
@@ -2518,12 +2498,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                   <span className="text-[10px] text-slate-400">{dish.category} • {dish.prepTime}</span>
                                 </div>
                               </div>
-                              <div className="flex items-center gap-4">
-                                <span className={`text-xs font-mono ${portions <= 0 ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
+                              <div className="flex items-center gap-3 sm:gap-4">
+                                <span className={`text-xs font-mono hidden sm:inline ${portions <= 0 ? 'text-amber-600 font-bold' : 'text-slate-500'}`}>
                                   {portions <= 0 ? '0 ready' : `${portions} ready`}
                                 </span>
-                                <span className="font-mono font-bold text-sm text-[#ff5500]">{settings.currency} {dish.price.toFixed(2)}</span>
-                                <button className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold">+ Add</button>
+                                <span className="font-mono font-bold text-xs sm:text-sm text-[#ff5500]">
+                                  {settings.currency} {dish.price.toFixed(2)}
+                                </span>
+                                <button type="button" className="px-2 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold">+ Add</button>
                               </div>
                             </div>
                           );
@@ -2532,10 +2514,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     );
                   }
 
-                  // Default Visual Grid with High-Contrast Canvas & Divided Cards
+                  // Default Grid Layout with multi-screen scaling
                   return (
-                    <div className="bg-slate-100/80 p-3.5 rounded-3xl border border-slate-200/90 shadow-inner">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3.5">
+                    <div className="bg-slate-100/80 p-2.5 sm:p-3.5 rounded-3xl border border-slate-200/90 shadow-inner">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-6 gap-2.5 sm:gap-3.5">
                         {filteredDishes.map(dish => {
                           const { cogs, portions } = calculateDishAvailability(dish.recipe);
                           const isInCart = cart.some(i => i.id === dish.id);
@@ -2543,76 +2525,58 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           return (
                             <div
                               key={dish.id}
-                              onClick={() => {
-                                setCart(prev => {
-                                  const existing = prev.find(i => i.id === dish.id);
-                                  if (existing) {
-                                    return prev.map(i => i.id === dish.id ? { ...i, qty: i.qty + 1 } : i);
-                                  }
-                                  return [...prev, { ...dish, cartItemId: `cart_${Date.now()}_${Math.random().toString(36).substring(2, 5)}`, qty: 1, notes: '' }];
-                                });
-                              }}
-                              className={`bg-white rounded-2xl border-2 cursor-pointer active:scale-[0.98] overflow-hidden flex flex-col justify-between transition-all duration-150 shadow-xs hover:shadow-md hover:-translate-y-0.5 ${
+                              onClick={() => handleAddToCart(dish)}
+                              className={`bg-white rounded-2xl border-2 cursor-pointer active:scale-[0.98] overflow-hidden flex flex-col justify-between transition-all duration-150 shadow-xs hover:shadow-md ${
                                 isInCart
                                   ? 'border-[#ff5500] ring-2 ring-[#ff5500]/25 shadow-orange-500/15'
                                   : 'border-slate-300 hover:border-slate-400'
                               }`}
                             >
                               {dish.imageUrl ? (
-                                <div className="relative h-28 w-full bg-slate-100 overflow-hidden shrink-0 border-b border-slate-200">
+                                <div className="relative h-20 sm:h-24 md:h-28 w-full bg-slate-100 overflow-hidden shrink-0 border-b border-slate-200">
                                   <img
                                     src={dish.imageUrl}
                                     alt={dish.name}
                                     className="w-full h-full object-cover"
                                     onError={(e) => { e.currentTarget.style.display = 'none'; }}
                                   />
-                                  <span className={`absolute top-2 left-2 text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded shadow-xs text-white ${
+                                  <span className={`absolute top-1.5 left-1.5 text-[8px] sm:text-[9px] font-black uppercase px-1.5 py-0.2 rounded text-white ${
                                     dish.department === 'Bar' ? 'bg-indigo-600' : 'bg-rose-600'
                                   }`}>
                                     {dish.department}
                                   </span>
-                                  <span className="absolute bottom-2 right-2 px-2.5 py-0.5 rounded-lg bg-black/80 backdrop-blur-xs text-white font-mono font-black text-xs shadow-xs">
-                                    {settings.currency} {dish.price.toFixed(2)}
+                                  <span className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-xs text-white font-mono font-black text-[10px] sm:text-xs">
+                                    {settings.currency} {dish.price.toFixed(0)}
                                   </span>
                                 </div>
                               ) : (
-                                <div className="p-3 pb-0 flex justify-between items-start">
-                                  <span className={`text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                                    dish.department === 'Bar'
-                                      ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
-                                      : 'bg-rose-50 text-rose-700 border border-rose-200'
+                                <div className="p-2.5 pb-0 flex justify-between items-start">
+                                  <span className={`text-[8px] sm:text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${
+                                    dish.department === 'Bar' ? 'bg-indigo-50 text-indigo-700' : 'bg-rose-50 text-rose-700'
                                   }`}>
                                     {dish.department}
                                   </span>
                                   <span className="text-xs font-mono font-black text-[#ff5500]">
-                                    {settings.currency} {dish.price.toFixed(2)}
+                                    {settings.currency} {dish.price.toFixed(0)}
                                   </span>
                                 </div>
                               )}
 
-                              {/* Dish Title & Description / Category */}
-                              <div className="p-3.5 pb-2.5 flex-1 flex flex-col justify-center">
-                                <h4 className="font-black text-sm text-slate-950 leading-snug line-clamp-2 tracking-tight">
+                              <div className="p-2.5 sm:p-3 flex-1 flex flex-col justify-center">
+                                <h4 className="font-black text-xs sm:text-sm text-slate-950 leading-snug line-clamp-2">
                                   {dish.name}
                                 </h4>
-                                <p className="text-[11px] text-slate-600 font-bold mt-1 line-clamp-1 uppercase tracking-wide">
-                                  {dish.category || dish.description || 'General Menu'}
+                                <p className="text-[10px] text-slate-500 font-bold mt-0.5 line-clamp-1 uppercase">
+                                  {dish.category || 'General Menu'}
                                 </p>
                               </div>
 
-                              {/* Card Bottom: Readiness & BOM Status */}
-                              <div className="p-3 pt-2 border-t border-slate-200/90 flex items-center justify-between text-[11px] bg-slate-50/70">
-                                {portions <= 0 ? (
-                                  <span className="text-amber-600 font-bold flex items-center gap-1 text-[10px]">
-                                    <AlertTriangle className="h-3 w-3" /> 0 ready
-                                  </span>
-                                ) : (
-                                  <span className="text-emerald-700 font-bold flex items-center gap-1 text-[10px]">
-                                    <CheckCircle2 className="h-3 w-3" /> {portions} ready
-                                  </span>
-                                )}
-                                <span className="text-slate-500 font-mono font-bold text-[10px]">
-                                  BOM: {settings.currency} {cogs.toFixed(0)}
+                              <div className="p-2 sm:p-2.5 border-t border-slate-200/90 flex items-center justify-between text-[10px] bg-slate-50/70">
+                                <span className={`font-bold ${portions <= 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                                  {portions <= 0 ? '0 ready' : `${portions} left`}
+                                </span>
+                                <span className="text-slate-400 font-mono hidden sm:inline">
+                                  BOM: {cogs.toFixed(0)}
                                 </span>
                               </div>
                             </div>
@@ -2625,11 +2589,83 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             </div>
 
-            {/* Right Ticket Bar */}
-            <div className="w-96 bg-white border-l border-slate-200 flex flex-col justify-between shrink-0 shadow-lg min-h-0">
+            {/* FLOATING ACTION BAR FOR MOBILE/TABLET (Bottom Dock) */}
+            <div className="lg:hidden fixed bottom-0 inset-x-0 bg-slate-900 border-t border-slate-800 p-3 z-30 flex items-center justify-between shadow-2xl backdrop-blur-md">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setMobileCartDrawerOpen(true)}
+                    className="h-11 w-11 rounded-xl bg-orange-600 text-white flex items-center justify-center shadow-lg shadow-orange-600/40 cursor-pointer active:scale-95"
+                  >
+                    <ShoppingBag className="h-5 w-5" />
+                  </button>
+                  {cart.length > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-emerald-500 text-white text-[10px] font-black flex items-center justify-center border-2 border-slate-900">
+                      {cart.reduce((sum, item) => sum + item.qty, 0)}
+                    </span>
+                  )}
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    {orderMode === 'DINING' ? selectedTable.name : 'Takeaway'}
+                  </span>
+                  <span className="text-sm font-black font-mono text-white">
+                    {settings.currency} {cartGrandTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={cart.length === 0}
+                  onClick={() => setMobileCartDrawerOpen(true)}
+                  className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-all cursor-pointer disabled:opacity-30"
+                >
+                  View Bill
+                </button>
+                <button
+                  type="button"
+                  disabled={cart.length === 0}
+                  onClick={handleSendOrder}
+                  className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white text-xs font-black uppercase tracking-wider rounded-xl shadow-lg shadow-orange-600/30 transition-all cursor-pointer disabled:opacity-30 flex items-center gap-1.5"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  <span>Send</span>
+                </button>
+              </div>
+            </div>
+
+            {/* MOBILE CART BACKDROP OVERLAY */}
+            {mobileCartDrawerOpen && (
+              <div
+                onClick={() => setMobileCartDrawerOpen(false)}
+                className="lg:hidden fixed inset-0 bg-black/70 backdrop-blur-xs z-40 transition-opacity"
+              />
+            )}
+
+            {/* RIGHT TICKET BAR (Side pane on Desktop / Slide-up Bottom Sheet on Mobile & Tablet) */}
+            <div
+              className={`fixed lg:static inset-x-0 bottom-0 lg:inset-auto z-50 lg:z-auto w-full lg:w-96 max-h-[85vh] lg:max-h-full bg-white border-t lg:border-t-0 lg:border-l border-slate-200 flex flex-col justify-between shrink-0 shadow-2xl lg:shadow-none rounded-t-3xl lg:rounded-none transition-transform duration-300 ease-in-out ${
+                mobileCartDrawerOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'
+              }`}
+            >
+              {/* Mobile Drawer Handle Header */}
+              <div className="p-3 border-b border-slate-100 flex lg:hidden items-center justify-between">
+                <div className="h-1.5 w-12 bg-slate-300 rounded-full mx-auto" />
+                <button
+                  type="button"
+                  onClick={() => setMobileCartDrawerOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-900 absolute right-3"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {/* Order Assignment Controls */}
               <div className="p-3.5 border-b border-slate-200 space-y-2.5 shrink-0 bg-white">
-                
-                {/* ACTIVE BILL EDITING NOTIFICATION BANNER */}
+                {/* Modifying Existing Bill Alert */}
                 {settlingOrder && (
                   <div className="p-2.5 bg-amber-500/10 border-2 border-amber-500/40 rounded-xl flex items-center justify-between text-xs">
                     <div>
@@ -2653,13 +2689,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 )}
 
-                {/* Order Assignment with Tick Selectors */}
+                {/* Dine-In vs Takeaway Selector */}
                 <div>
                   <span className="text-[10px] font-black tracking-wider uppercase text-slate-400 block mb-1.5">
                     Order Assignment
                   </span>
                   <div className="grid grid-cols-2 gap-2">
-                    {/* Dining Tick Card */}
                     <button
                       type="button"
                       onClick={() => setOrderMode('DINING')}
@@ -2671,18 +2706,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     >
                       <div className="flex items-center gap-1.5">
                         <Grid className="h-3.5 w-3.5 text-[#ff5500]" />
-                        <span>Dine-In Table</span>
+                        <span>Dine-In</span>
                       </div>
-                      <div className={`h-4 w-4 rounded-full flex items-center justify-center border transition-all ${
-                        orderMode === 'DINING'
-                          ? 'bg-[#ff5500] border-[#ff5500] text-white'
-                          : 'border-slate-300 bg-white'
+                      <div className={`h-4 w-4 rounded-full flex items-center justify-center border ${
+                        orderMode === 'DINING' ? 'bg-[#ff5500] border-[#ff5500] text-white' : 'border-slate-300 bg-white'
                       }`}>
                         {orderMode === 'DINING' && <Check className="h-2.5 w-2.5 stroke-[3]" />}
                       </div>
                     </button>
 
-                    {/* Takeaway Tick Card */}
                     <button
                       type="button"
                       onClick={() => setOrderMode('TAKEAWAY')}
@@ -2696,10 +2728,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         <ShoppingBag className="h-3.5 w-3.5 text-[#ff5500]" />
                         <span>Takeaway</span>
                       </div>
-                      <div className={`h-4 w-4 rounded-full flex items-center justify-center border transition-all ${
-                        orderMode === 'TAKEAWAY'
-                          ? 'bg-[#ff5500] border-[#ff5500] text-white'
-                          : 'border-slate-300 bg-white'
+                      <div className={`h-4 w-4 rounded-full flex items-center justify-center border ${
+                        orderMode === 'TAKEAWAY' ? 'bg-[#ff5500] border-[#ff5500] text-white' : 'border-slate-300 bg-white'
                       }`}>
                         {orderMode === 'TAKEAWAY' && <Check className="h-2.5 w-2.5 stroke-[3]" />}
                       </div>
@@ -2707,13 +2737,11 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 </div>
 
-                {/* Inline Table / Guest Picker based on ticked mode */}
+                {/* Table Picker or Takeaway Information */}
                 {orderMode === 'DINING' ? (
                   <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
                     <div className="flex items-center justify-between text-xs">
-                      <label className="font-bold text-slate-700 flex items-center gap-1">
-                        <span>Assigned Table:</span>
-                      </label>
+                      <span className="font-bold text-slate-700">Assigned Table:</span>
                       <button
                         type="button"
                         onClick={() => setAllocationModalOpen(true)}
@@ -2734,7 +2762,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       >
                         {floorTables.map(t => (
                           <option key={t.id} value={t.id}>
-                            {t.name} ({t.zone}) - {t.capacity} Seats [{t.status}]
+                            {t.name} ({t.zone}) - {t.capacity}p [{t.status}]
                           </option>
                         ))}
                       </select>
@@ -2785,7 +2813,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 )}
 
-                {/* Surcharges and Discounts */}
+                {/* Surcharges & Rates Toggle */}
                 <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
                     type="button"
@@ -2812,7 +2840,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </button>
                 </div>
 
-                {/* Discount Presets */}
+                {/* Quick Discounts */}
                 <div>
                   <span className="text-[10px] font-bold text-slate-400 uppercase">Discount:</span>
                   <div className="flex gap-1 mt-1">
@@ -2834,8 +2862,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </div>
               </div>
 
-              {/* Cart item list with scroll containment */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-2.5 min-h-0">
+              {/* Cart Items List */}
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-2 min-h-0">
                 {cart.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-6">
                     <Monitor className="h-10 w-10 mb-2 stroke-[1]" />
@@ -2844,7 +2872,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
                 ) : (
                   cart.map(item => (
-                    <div key={item.cartItemId} className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <div key={item.cartItemId} className="p-2.5 sm:p-3 bg-slate-50 rounded-xl border border-slate-200">
                       <div className="flex items-start justify-between">
                         <div>
                           <p className="text-xs font-bold text-slate-900">{item.name}</p>
@@ -2899,8 +2927,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 )}
               </div>
 
-              {/* Order totals and actions */}
-              <div className="p-4 border-t border-slate-200 bg-slate-50 space-y-3 shrink-0">
+              {/* Ticket Financial Totals & Actions */}
+              <div className="p-3.5 sm:p-4 border-t border-slate-200 bg-slate-50 space-y-2.5 shrink-0">
                 <div className="space-y-1 text-xs text-slate-600">
                   <div className="flex justify-between">
                     <span>Subtotal</span>
@@ -2924,7 +2952,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       <span className="font-mono">+{settings.currency} {cartTax.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-sm font-black text-slate-900 pt-2 border-t border-slate-200">
+                  <div className="flex justify-between text-sm font-black text-slate-900 pt-1.5 border-t border-slate-200">
                     <span>Grand Total</span>
                     <span className="font-mono text-base text-[#ff5500]">{settings.currency} {cartGrandTotal.toFixed(2)}</span>
                   </div>
@@ -2933,8 +2961,11 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 <button
                   type="button"
                   disabled={cart.length === 0}
-                  onClick={handleSendOrder}
-                  className="w-full py-3 bg-[#ff5500] hover:bg-orange-600 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm shadow-orange-600/30 disabled:opacity-40 cursor-pointer"
+                  onClick={() => {
+                    handleSendOrder();
+                    setMobileCartDrawerOpen(false);
+                  }}
+                  className="w-full py-2.5 sm:py-3 bg-[#ff5500] hover:bg-orange-600 text-white font-extrabold rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 shadow-sm shadow-orange-600/30 disabled:opacity-40 cursor-pointer"
                 >
                   <Send className="h-4 w-4" />
                   <span>{settlingOrder ? 'Save & Send Add-On (KOT / BOT)' : 'Send Order (Prints KOT / BOT)'}</span>
@@ -2946,6 +2977,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   onClick={() => {
                     setPaymentMethod('CASH');
                     setCheckoutModalOpen(true);
+                    setMobileCartDrawerOpen(false);
                   }}
                   className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 disabled:opacity-40 cursor-pointer"
                 >
@@ -2953,158 +2985,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <span>Direct Settle &amp; Pay ({settings.currency} {cartGrandTotal.toFixed(2)})</span>
                 </button>
               </div>
-            </div>
-          </div>
-        )}
-         
-        {/* VIEW 2: BILLING & SETTLEMENT QUEUE */}
-        {activeTab === 'billing' && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">Billing &amp; Settlement Queue</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Manage active tables, edit line items, print temporary bills, and settle final accounts.
-                </p>
-              </div>
-              <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-700">
-                {activeOrders.length} Open Bills
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {activeOrders.length === 0 ? (
-                <div className="col-span-full h-64 bg-white rounded-2xl border border-dashed border-slate-300 flex flex-col items-center justify-center text-slate-400">
-                  <Receipt className="h-10 w-10 mb-2 stroke-[1]" />
-                  <p className="text-sm font-bold text-slate-700">No active tables pending billing</p>
-                  <p className="text-xs mt-1">Send an order from the POS Terminal to populate this list.</p>
-                </div>
-              ) : (
-                activeOrders.map(order => {
-                  const fin = calculateOrderFinancials(order);
-                  return (
-                    <div key={order.orderId} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
-                      <div>
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-100 text-[#ff5500]">
-                              {order.mode}
-                            </span>
-                            <h3 className="text-base font-extrabold text-slate-900 mt-1">{order.tableName}</h3>
-                            <p className="text-xs text-slate-500">Waitstaff: {order.server} • {order.sentAt}</p>
-                          </div>
-                          <span className="text-lg font-black font-mono text-[#ff5500]">
-                            {settings.currency} {fin.total.toFixed(2)}
-                          </span>
-                        </div>
-
-                        <div className="bg-slate-50 rounded-xl p-3 my-3 space-y-1.5 text-xs max-h-40 overflow-y-auto border border-slate-100">
-                          {order.items.map((item, idx) => (
-                            <div key={idx} className="flex justify-between">
-                              <span className="font-bold text-slate-800">{item.qty}x {item.name}</span>
-                              <span className="font-mono text-slate-500">{settings.currency} {(item.price * item.qty).toFixed(2)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-slate-100 space-y-2">
-                        <div className="grid grid-cols-3 gap-1.5 text-xs">
-                          {/* Edit Items by loading directly into POS Terminal */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              // 1. Stage items into POS cart
-                              setCart(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
-                              
-                              // 2. Set mode and table
-                              setOrderMode(order.mode || 'DINING');
-                              if (order.tableId) {
-                                const tbl = floorTables.find(t => t.id === order.tableId);
-                                if (tbl) setSelectedTable(tbl);
-                              } else {
-                                setTakeawayInfo(prev => ({
-                                  ...prev,
-                                  name: order.customerName || 'Walk-in Guest',
-                                  token: order.tableName || 'TK-101'
-                                }));
-                              }
-                              
-                              // 3. Keep tax, service, discount states
-                              setServiceChargeActive(order.serviceChargeActive !== false);
-                              setTaxActive(Boolean(order.taxActive));
-                              setDiscountPercent(order.discountPercent || 0);
-
-                              // 4. Mark active bill reference so Send Order knows to print add-on slips
-                              setSettlingOrder(order);
-
-                              // 5. Switch to POS terminal view
-                              setActiveTab('pos');
-                            }}
-                            className="py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <Edit3 className="h-3 w-3 text-[#ff5500]" /> Edit in POS
-                          </button>
-                          
-                          {/* Print Proforma Temp Bill */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              triggerAutoPrint({
-                                type: 'TEMP_BILL',
-                                data: {
-                                  table: order.tableName,
-                                  server: order.server,
-                                  items: order.items,
-                                  subtotal: fin.subtotal,
-                                  discount: fin.discount,
-                                  service: fin.service,
-                                  tax: fin.tax,
-                                  total: fin.total
-                                }
-                              }, `Proforma Bill for ${order.tableName}`);
-                            }}
-                            className="py-1.5 bg-indigo-50 hover:bg-indigo-100 rounded-lg text-indigo-700 font-bold flex items-center justify-center gap-1 cursor-pointer"
-                          >
-                            <Printer className="h-3 w-3" /> Temp Bill
-                          </button>
-
-                          {/* Settle Bill */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSettlingOrder(order);
-                              setPaymentMethod('CASH');
-                              setCheckoutModalOpen(true);
-                            }}
-                            className="py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                          >
-                            <DollarSign className="h-3 w-3" /> Settle
-                          </button>
-                        </div>
-
-                        {/* Admin-Only Active Bill Deletion */}
-                        {currentUser.role === 'Administrator' && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setActiveOrders(prev => prev.filter(o => o.orderId !== order.orderId));
-                              if (order.tableId) {
-                                setFloorTables(prev => prev.map(t => t.id === order.tableId ? { ...t, status: 'VACANT', currentOrderRef: null } : t));
-                              }
-                              recordAuditLog('ADMIN_DELETE_ACTIVE_BILL', order.orderId, `Admin deleted open bill ${order.orderId} (${order.tableName})`);
-                            }}
-                            className="w-full py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1 transition-colors border border-rose-200 cursor-pointer"
-                            title="Admin Only: Delete this active open bill"
-                          >
-                            <Trash2 className="h-3 w-3" /> Delete Active Bill (Admin)
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
             </div>
           </div>
         )}
