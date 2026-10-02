@@ -60,8 +60,8 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 const ROLE_PERMISSIONS = {
-  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin', 'cancelled', 'staff', 'settings'],
-  Manager: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin', 'cancelled', 'settings'],
+  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'cancelled', 'staff', 'settings'],
+  Manager: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'cancelled', 'settings'],
   Cashier: ['pos', 'billing', 'tables', 'shifts', 'reports'],
   'Kitchen Chef': ['kds', 'recipes', 'stock'],
   Bartender: ['bar', 'recipes', 'stock'],
@@ -2323,6 +2323,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               { id: 'menu_admin', name: 'Menu Management', icon: ClipboardList, badgeText: '+Add' },
               { id: 'cancelled', name: 'Cancelled Tickets', icon: Trash2 },
               { id: 'staff', name: 'Staff Management', icon: Users },
+              { id: 'payroll', name: 'Employment & Payroll', icon: Briefcase },
               { id: 'settings', name: 'System Settings', icon: Settings }
             ].map(item => {
               const allowed = hasAccess(item.id);
