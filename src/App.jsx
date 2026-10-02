@@ -340,6 +340,26 @@ export default function App() {
     invoice: 1,
     cashOut: 1
   });
+  // Persistent Attendance & Time Clock
+  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
+  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
+  const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
+  
+  // Payroll Creation Modal Form
+  const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
+  const [payrollInputForm, setPayrollInputForm] = useState({
+    staffId: '',
+    period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    basicSalary: 35000,
+    budgetaryAllowance: 2500, // Statutory BRA
+    otherAllowances: 0,
+    serviceChargeBonus: 0,
+    incentiveBonus: 0,
+    overtimeHours: 0,
+    overtimeRate: 250, // hourly
+    otherDeductions: 0,
+    notes: ''
+  });
   // Sequential Number Helpers
   const getNextOrderNumber = () => {
     let nextNum = seqCounters.order || 1;
@@ -738,6 +758,24 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         localStorage.setItem('linoli_denominations', serialized);
       }
     });
+
+    // 10. Receive attendance logs from cloud
+    const unsubAttendance = subscribeToCloud('attendance_logs', (remoteAtt) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remoteAtt)) {
+        setAttendanceLogs(remoteAtt);
+        localStorage.setItem('linoli_attendance_logs', JSON.stringify(remoteAtt));
+      }
+    });
+
+    // 11. Receive payroll records from cloud
+    const unsubPayroll = subscribeToCloud('payroll_records', (remotePay) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remotePay)) {
+        setPayrollRecords(remotePay);
+        localStorage.setItem('linoli_payroll_records', JSON.stringify(remotePay));
+      }
+    });
     
     return () => {
       if (typeof unsubOrders === 'function') unsubOrders();
@@ -750,6 +788,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubShift === 'function') unsubShift();
       if (typeof unsubStaff === 'function') unsubStaff();
       if (typeof unsubDenominations === 'function') unsubDenominations();
+      if (typeof unsubAttendance === 'function') unsubAttendance();
+      if (typeof unsubPayroll === 'function') unsubPayroll();
     };
   }, []);
 
@@ -862,7 +902,16 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         syncToCloud('denominations', denominations);
       }
     }
-  }, [denominations]);
+    }, [denominations]);
+    useEffect(() => {
+    if (!isCloudSynced.current) return;
+    if (attendanceLogs !== undefined) syncToCloud('attendance_logs', attendanceLogs);
+  }, [attendanceLogs]);
+
+  useEffect(() => {
+    if (!isCloudSynced.current) return;
+    if (payrollRecords !== undefined) syncToCloud('payroll_records', payrollRecords);
+  }, [payrollRecords]);
 
   const handleCreateStaff = (e) => {
     e.preventDefault();
@@ -1945,6 +1994,73 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     } else {
       setLoginError('Invalid security PIN. Default Admin: 1234, Cashier: 1111');
     }
+  };
+
+  // =========================================================================
+  // SRI LANKAN STATUTORY CALCULATION HELPERS (EPF / ETF / SERVICE POOL)
+  // =========================================================================
+  const calculateSriLankanPayroll = ({
+    basicSalary = 0,
+    budgetaryAllowance = 0,
+    otherAllowances = 0,
+    serviceChargeBonus = 0,
+    incentiveBonus = 0,
+    overtimeHours = 0,
+    overtimeRate = 0,
+    otherDeductions = 0
+  }) => {
+    const basic = Number(basicSalary) || 0;
+    const bra = Number(budgetaryAllowance) || 0; // Statutory Budgetary Relief Allowance
+    const allowances = Number(otherAllowances) || 0;
+    const pool = Number(serviceChargeBonus) || 0;
+    const bonus = Number(incentiveBonus) || 0;
+    const ot = (Number(overtimeHours) || 0) * (Number(overtimeRate) || 0);
+    const deductions = Number(otherDeductions) || 0;
+
+    // Sri Lankan law: EPF/ETF Base = Basic Salary + Fixed Cost of Living & Budgetary Relief Allowances
+    // (Overtime, service charge tips, and ad-hoc festive bonuses are excluded from the EPF base)
+    const epfLiableEarnings = Number((basic + bra + allowances).toFixed(2));
+
+    // Statutory Contributions
+    const epfEmployee = Number((epfLiableEarnings * 0.08).toFixed(2)); // 8% deducted from employee
+    const epfEmployer = Number((epfLiableEarnings * 0.12).toFixed(2)); // 12% paid by employer
+    const etfEmployer = Number((epfLiableEarnings * 0.03).toFixed(2)); // 3% paid by employer
+    const totalEpfFund = Number((epfEmployee + epfEmployer).toFixed(2)); // 20% into Central Bank EPF
+
+    // Gross & Net Salary
+    const grossEarnings = Number((basic + bra + allowances + pool + bonus + ot).toFixed(2));
+    const totalDeductions = Number((epfEmployee + deductions).toFixed(2));
+    const netSalary = Number((grossEarnings - totalDeductions).toFixed(2));
+
+    // Total Employer Cost to Company (CTC)
+    const costToCompany = Number((grossEarnings + epfEmployer + etfEmployer).toFixed(2));
+
+    return {
+      basic,
+      bra,
+      allowances,
+      epfLiableEarnings,
+      epfEmployee,
+      epfEmployer,
+      etfEmployer,
+      totalEpfFund,
+      serviceChargeBonus: pool,
+      incentiveBonus: bonus,
+      overtimePay: ot,
+      grossEarnings,
+      totalDeductions,
+      netSalary,
+      costToCompany
+    };
+  };
+
+  // Quick helper to check if a staff member is currently clocked in
+  const getStaffClockStatus = (staffId) => {
+    const today = getLocalDateStr();
+    const userTodayLogs = (attendanceLogs || []).filter(a => a.staffId === staffId && a.date === today);
+    if (userTodayLogs.length === 0) return { clockedIn: false, log: null };
+    const latest = userTodayLogs[userTodayLogs.length - 1];
+    return { clockedIn: !latest.clockOutTime, log: latest };
   };
 
   if (!isAuthenticated) {
@@ -5349,6 +5465,483 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           </div>
         )}
 
+        {/* VIEW: COMPREHENSIVE EMPLOYMENT, TIME CLOCK & SRI LANKAN PAYROLL */}
+        {activeTab === 'payroll' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+            {/* Header and Action Bar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                  <Briefcase className="h-5 w-5 text-[#ff5500]" />
+                  Employment, Attendance &amp; Sri Lanka Statutory Payroll
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Daily Clock-In/Out biometric time sheet, EPF (8%/12%), ETF (3%), Service Pool bonus, and official pay slips.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstStaff = staffList[0];
+                    setPayrollInputForm({
+                      staffId: firstStaff ? firstStaff.id : '',
+                      period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                      basicSalary: 35000,
+                      budgetaryAllowance: 2500,
+                      otherAllowances: 0,
+                      serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
+                      incentiveBonus: 0,
+                      overtimeHours: 0,
+                      overtimeRate: 250,
+                      otherDeductions: 0,
+                      notes: ''
+                    });
+                    setProcessPayModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Process Pay Slip</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Navigation Sub-Tabs */}
+            <div className="flex items-center gap-4 border-b border-slate-200 pb-2 text-xs font-bold overflow-x-auto">
+              {[
+                { id: 'attendance', label: 'Time Sheet & Clock In/Out' },
+                { id: 'payslips', label: 'Payroll & Pay Slips' },
+                { id: 'epf_etf', label: 'Sri Lanka EPF / ETF Return (Form C)' },
+                { id: 'profiles', label: 'Employee Registry & Wages' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setPayrollSubTab(tab.id)}
+                  className={`pb-2 transition-all relative whitespace-nowrap cursor-pointer ${
+                    payrollSubTab === tab.id
+                      ? 'text-[#ff5500] after:absolute after:bottom-0 after:left-0 after:w-full after:h-0.5 after:bg-[#ff5500]'
+                      : 'text-slate-500 hover:text-slate-900'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* SUB-TAB 1: TIME SHEET & CLOCK IN / CLOCK OUT */}
+            {payrollSubTab === 'attendance' && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {staffList.map(member => {
+                    const { clockedIn, log } = getStaffClockStatus(member.id);
+
+                    return (
+                      <div key={member.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col justify-between">
+                        <div className="flex items-start justify-between">
+                          <div className="flex items-center gap-2.5">
+                            <div className="h-10 w-10 rounded-xl bg-slate-900 text-white font-black text-xs flex items-center justify-center">
+                              {member.avatar}
+                            </div>
+                            <div>
+                              <h4 className="font-extrabold text-xs text-slate-900 leading-tight">{member.name}</h4>
+                              <span className="text-[10px] text-slate-500 block">{member.role}</span>
+                            </div>
+                          </div>
+
+                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
+                            clockedIn ? 'bg-emerald-100 text-emerald-800 animate-pulse' : 'bg-slate-100 text-slate-500'
+                          }`}>
+                            {clockedIn ? '● On Duty' : 'Off Duty'}
+                          </span>
+                        </div>
+
+                        <div className="my-3 py-2 border-y border-slate-100 text-[11px] text-slate-600 space-y-1">
+                          <div className="flex justify-between">
+                            <span>Today Clock In:</span>
+                            <span className="font-mono font-bold">{log ? log.clockInTime : '--:--'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Today Clock Out:</span>
+                            <span className="font-mono font-bold">{log && log.clockOutTime ? log.clockOutTime : '--:--'}</span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            const todayStr = getLocalDateStr();
+
+                            if (clockedIn && log) {
+                              const start = new Date(`${todayStr} ${log.clockInTime}`);
+                              const end = new Date();
+                              const diffHours = Math.max(0.1, Number(((end - start) / (1000 * 60 * 60)).toFixed(2)));
+
+                              setAttendanceLogs(prev => prev.map(a => a.id === log.id ? {
+                                ...a,
+                                clockOutTime: nowTime,
+                                totalHours: diffHours,
+                                isOvertime: diffHours > 8
+                              } : a));
+
+                              recordAuditLog(
+                                'STAFF_CLOCK_OUT',
+                                member.id,
+                                `${member.name} clocked out at ${nowTime} (${diffHours} hrs worked)`
+                              );
+                            } else {
+                              const newLog = {
+                                id: `ATT-${Date.now().toString().slice(-6)}`,
+                                date: todayStr,
+                                staffId: member.id,
+                                staffName: member.name,
+                                role: member.role,
+                                clockInTime: nowTime,
+                                clockOutTime: null,
+                                totalHours: 0,
+                                isOvertime: false
+                              };
+
+                              setAttendanceLogs(prev => [newLog, ...prev]);
+
+                              recordAuditLog(
+                                'STAFF_CLOCK_IN',
+                                member.id,
+                                `${member.name} clocked in at ${nowTime}`
+                              );
+                            }
+                          }}
+                          className={`w-full py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs ${
+                            clockedIn
+                              ? 'bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200'
+                              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                          }`}
+                        >
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>{clockedIn ? 'Clock Out' : 'Clock In Now'}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Attendance History &amp; Work Hours Sheet
+                    </h3>
+                    <span className="text-xs font-mono text-slate-500 font-bold">{attendanceLogs.length} Records</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-4">Date</th>
+                          <th className="py-2.5 px-4">Employee</th>
+                          <th className="py-2.5 px-4">Role</th>
+                          <th className="py-2.5 px-4">Clock In</th>
+                          <th className="py-2.5 px-4">Clock Out</th>
+                          <th className="py-2.5 px-4 text-center">Total Hours</th>
+                          <th className="py-2.5 px-4 text-center">Overtime (&gt;8h)</th>
+                          <th className="py-2.5 px-4 text-right">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {attendanceLogs.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-8 text-center text-slate-400 italic">
+                              No attendance punches recorded yet.
+                            </td>
+                          </tr>
+                        ) : (
+                          attendanceLogs.map(att => (
+                            <tr key={att.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-4 font-mono font-bold text-slate-700">{att.date}</td>
+                              <td className="py-3 px-4 font-bold text-slate-900">{att.staffName}</td>
+                              <td className="py-3 px-4 text-slate-500">{att.role}</td>
+                              <td className="py-3 px-4 font-mono text-emerald-700 font-bold">{att.clockInTime}</td>
+                              <td className="py-3 px-4 font-mono text-slate-700 font-bold">{att.clockOutTime || '--:--'}</td>
+                              <td className="py-3 px-4 text-center font-mono font-bold">{att.totalHours ? `${att.totalHours} hrs` : '--'}</td>
+                              <td className="py-3 px-4 text-center">
+                                {att.isOvertime ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-amber-100 text-amber-800">
+                                    Overtime
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400 font-mono text-[11px]">Normal</span>
+                                )}
+                              </td>
+                              <td className="py-3 px-4 text-right">
+                                {currentUser.role === 'Administrator' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm('Delete attendance punch record?')) {
+                                        setAttendanceLogs(prev => prev.filter(a => a.id !== att.id));
+                                      }
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-rose-600"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-TAB 2: PAYROLL RECORDS & PAY SLIPS */}
+            {payrollSubTab === 'payslips' && (
+              <div className="space-y-6">
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                  <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                        Processed Salary &amp; Wage Slips
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Includes Basic, Allowances, EPF 8% &amp; Service Gratuity pool</p>
+                    </div>
+                    <span className="text-xs font-mono text-slate-600 font-bold">{payrollRecords.length} Slips</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Slip ID</th>
+                          <th className="py-2.5 px-3">Employee</th>
+                          <th className="py-2.5 px-3">Period</th>
+                          <th className="py-2.5 px-3 text-right">Basic + Allowances</th>
+                          <th className="py-2.5 px-3 text-right">EPF Base</th>
+                          <th className="py-2.5 px-3 text-right text-rose-600">EPF 8% (Employee)</th>
+                          <th className="py-2.5 px-3 text-right text-emerald-600">Service Pool</th>
+                          <th className="py-2.5 px-3 text-right font-black">Net Take-Home</th>
+                          <th className="py-2.5 px-3 text-right">Print Slip</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {payrollRecords.length === 0 ? (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-slate-400 italic">
+                              No payroll records processed yet. Click &ldquo;Process Pay Slip&rdquo; above.
+                            </td>
+                          </tr>
+                        ) : (
+                          payrollRecords.map(rec => (
+                            <tr key={rec.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-3 font-mono font-bold text-slate-800">{rec.id}</td>
+                              <td className="py-3 px-3">
+                                <span className="font-bold text-slate-900 block">{rec.staffName}</span>
+                                <span className="text-[10px] text-slate-400">{rec.role}</span>
+                              </td>
+                              <td className="py-3 px-3 font-mono font-bold text-slate-700">{rec.period}</td>
+                              <td className="py-3 px-3 text-right font-mono">
+                                {settings.currency} {((rec.breakdown?.basic || 0) + (rec.breakdown?.bra || 0) + (rec.breakdown?.allowances || 0)).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
+                                {settings.currency} {(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-rose-600 font-bold">
+                                -{settings.currency} {(rec.breakdown?.epfEmployee || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
+                                +{settings.currency} {(rec.breakdown?.serviceChargeBonus || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-black text-slate-950 text-sm">
+                                {settings.currency} {(rec.breakdown?.netSalary || rec.netPay || 0).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    triggerAutoPrint({
+                                      type: 'PAYSLIP_PRINT',
+                                      data: rec
+                                    }, `Payslip ${rec.id} - ${rec.staffName}`);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
+                                  title="Print Payslip"
+                                >
+                                  <Printer className="h-4 w-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-TAB 3: SRI LANKA EPF / ETF RETURN (FORM C EQUIVALENT) */}
+            {payrollSubTab === 'epf_etf' && (
+              <div className="space-y-6">
+                {(() => {
+                  let totalEpfBase = 0;
+                  let totalEpfEmp8 = 0;
+                  let totalEpfEmpr12 = 0;
+                  let totalEtfEmpr3 = 0;
+
+                  payrollRecords.forEach(r => {
+                    if (r.breakdown) {
+                      totalEpfBase += (r.breakdown.epfLiableEarnings || 0);
+                      totalEpfEmp8 += (r.breakdown.epfEmployee || 0);
+                      totalEpfEmpr12 += (r.breakdown.epfEmployer || 0);
+                      totalEtfEmpr3 += (r.breakdown.etfEmployer || 0);
+                    }
+                  });
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <p className="text-[10px] font-black uppercase text-slate-400">Total Liable Earnings (EPF Base)</p>
+                        <p className="text-xl font-black font-mono text-slate-900 mt-1">
+                          {settings.currency} {totalEpfBase.toFixed(2)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">Basic + Budgetary Allowances</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <p className="text-[10px] font-black uppercase text-slate-400">EPF Employee Share (8%)</p>
+                        <p className="text-xl font-black font-mono text-rose-600 mt-1">
+                          {settings.currency} {totalEpfEmp8.toFixed(2)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">Deducted from workers</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <p className="text-[10px] font-black uppercase text-slate-400">EPF Employer Share (12%)</p>
+                        <p className="text-xl font-black font-mono text-indigo-600 mt-1">
+                          {settings.currency} {totalEpfEmpr12.toFixed(2)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">Paid by business</span>
+                      </div>
+
+                      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                        <p className="text-[10px] font-black uppercase text-slate-400">ETF Employer Share (3%)</p>
+                        <p className="text-xl font-black font-mono text-emerald-600 mt-1">
+                          {settings.currency} {totalEtfEmpr3.toFixed(2)}
+                        </p>
+                        <span className="text-[10px] text-slate-400">Remitted to ETF Board</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                  <div className="border-b border-slate-100 pb-3 mb-4">
+                    <h3 className="text-sm font-black text-slate-900 uppercase">
+                      Department of Labour &amp; Central Bank of Sri Lanka Form C Schedule
+                    </h3>
+                    <p className="text-xs text-slate-500">Official monthly remittance computation schedule</p>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Employee Name</th>
+                          <th className="py-2.5 px-3">EPF Member #</th>
+                          <th className="py-2.5 px-3 text-right">Liable Wages</th>
+                          <th className="py-2.5 px-3 text-right">Employee 8%</th>
+                          <th className="py-2.5 px-3 text-right">Employer 12%</th>
+                          <th className="py-2.5 px-3 text-right font-bold">Total EPF (20%)</th>
+                          <th className="py-2.5 px-3 text-right">Employer ETF (3%)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {payrollRecords.map(rec => (
+                          <tr key={rec.id} className="hover:bg-slate-50">
+                            <td className="py-2.5 px-3 font-bold text-slate-900">{rec.staffName}</td>
+                            <td className="py-2.5 px-3 font-mono text-slate-500">EPF-{rec.staffId.slice(-4)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono">{settings.currency} {(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-rose-600">{settings.currency} {(rec.breakdown?.epfEmployee || 0).toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-indigo-600">{settings.currency} {(rec.breakdown?.epfEmployer || 0).toFixed(2)}</td>
+                            <td className="py-2.5 px-3 text-right font-mono font-black text-slate-900">
+                              {settings.currency} {(rec.breakdown?.totalEpfFund || 0).toFixed(2)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-emerald-700 font-bold">
+                              {settings.currency} {(rec.breakdown?.etfEmployer || 0).toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SUB-TAB 4: EMPLOYEE REGISTRY & BASE SALARIES */}
+            {payrollSubTab === 'profiles' && (
+              <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                    Employee Registry &amp; Wage Structures
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => setAddStaffModalOpen(true)}
+                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add Staff Profile
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                      <tr>
+                        <th className="py-3 px-4">Employee</th>
+                        <th className="py-3 px-4">Role</th>
+                        <th className="py-3 px-4">Contact</th>
+                        <th className="py-3 px-4">NIC / National ID</th>
+                        <th className="py-3 px-4">Security PIN</th>
+                        <th className="py-3 px-4 text-right">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {staffList.map(member => (
+                        <tr key={member.id} className="hover:bg-slate-50">
+                          <td className="py-3 px-4">
+                            <span className="font-extrabold text-slate-900 block">{member.name}</span>
+                            <span className="text-[10px] text-slate-400 font-mono">{member.id}</span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <span className="px-2 py-0.5 bg-orange-100 text-[#ff5500] rounded font-bold text-[10px]">
+                              {member.role}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-slate-600">{member.email}</td>
+                          <td className="py-3 px-4 font-mono text-slate-700">1992{member.pin}402V</td>
+                          <td className="py-3 px-4 font-mono text-slate-500">•••• ({member.pin})</td>
+                          <td className="py-3 px-4 text-right">
+                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                              Active
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* VIEW 13: SYSTEM SETTINGS */}
         {activeTab === 'settings' && (
           <div className="flex-1 overflow-y-auto p-6 lg:p-8 space-y-6 max-w-5xl mx-auto w-full">
@@ -7644,6 +8237,101 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             )}
 
+            {/* Sri Lankan Statutory Payslip Print Slip */}
+            {activePrintSlip.type === 'PAYSLIP_PRINT' && (
+              <div className="space-y-3 font-mono text-xs">
+                <div className="text-center border-b-2 border-dashed border-black pb-2">
+                  <h2 className="font-black text-sm uppercase">{settings.restaurantName}</h2>
+                  <p className="text-[10px]">{settings.address}</p>
+                  <p className="font-bold text-xs uppercase mt-1">*** SALARY PAY SLIP ***</p>
+                  <p className="text-[10px]">Period: {activePrintSlip.data.period} • Slip #{activePrintSlip.data.id}</p>
+                </div>
+
+                <div className="space-y-1 border-b border-black pb-2 text-[11px]">
+                  <div className="flex justify-between">
+                    <span>Employee:</span>
+                    <span className="font-bold">{activePrintSlip.data.staffName}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Designation:</span>
+                    <span>{activePrintSlip.data.role}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 border-b border-dashed border-black pb-2 text-[11px]">
+                  <p className="font-bold text-[10px] uppercase">=== EARNINGS ===</p>
+                  <div className="flex justify-between">
+                    <span>Basic Salary:</span>
+                    <span>{settings.currency} {activePrintSlip.data.breakdown?.basic.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Budgetary Allowance (BRA):</span>
+                    <span>+{settings.currency} {activePrintSlip.data.breakdown?.bra.toFixed(2)}</span>
+                  </div>
+                  {activePrintSlip.data.breakdown?.allowances > 0 && (
+                    <div className="flex justify-between">
+                      <span>Other Allowances:</span>
+                      <span>+{settings.currency} {activePrintSlip.data.breakdown.allowances.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {activePrintSlip.data.breakdown?.serviceChargeBonus > 0 && (
+                    <div className="flex justify-between font-bold">
+                      <span>Service Pool Share:</span>
+                      <span>+{settings.currency} {activePrintSlip.data.breakdown.serviceChargeBonus.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {activePrintSlip.data.breakdown?.overtimePay > 0 && (
+                    <div className="flex justify-between">
+                      <span>Overtime Pay:</span>
+                      <span>+{settings.currency} {activePrintSlip.data.breakdown.overtimePay.toFixed(2)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-black border-t border-black pt-1">
+                    <span>GROSS EARNINGS:</span>
+                    <span>{settings.currency} {activePrintSlip.data.breakdown?.grossEarnings.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 border-b border-dashed border-black pb-2 text-[11px]">
+                  <p className="font-bold text-[10px] uppercase">=== DEDUCTIONS ===</p>
+                  <div className="flex justify-between">
+                    <span>EPF (Employee 8%):</span>
+                    <span>-{settings.currency} {activePrintSlip.data.breakdown?.epfEmployee.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 border-b-2 border-black pb-2 text-xs">
+                  <div className="flex justify-between font-black text-sm">
+                    <span>NET TAKE-HOME PAY:</span>
+                    <span>{settings.currency} {activePrintSlip.data.breakdown?.netSalary.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-1 border-b border-dotted border-black pb-2 text-[10px] text-slate-700">
+                  <p className="font-bold uppercase">=== EMPLOYER STATUTORY CONTRIBUTIONS ===</p>
+                  <div className="flex justify-between">
+                    <span>EPF (Employer 12%):</span>
+                    <span>{settings.currency} {activePrintSlip.data.breakdown?.epfEmployer.toFixed(2)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>ETF (Employer 3%):</span>
+                    <span>{settings.currency} {activePrintSlip.data.breakdown?.etfEmployer.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-3 text-[9px] flex justify-between">
+                  <div className="text-center">
+                    <p>___________________</p>
+                    <p>Employee Signature</p>
+                  </div>
+                  <div className="text-center">
+                    <p>___________________</p>
+                    <p>Authorized Officer</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* 2. Proforma Temporary Bill Slip */}
             {activePrintSlip.type === 'TEMP_BILL' && (
               <div className="space-y-2">
@@ -7929,6 +8617,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     <p className="italic text-[9px] text-slate-500">No denomination breakdown entered.</p>
                   )}
                 </div>
+                
 
                 <div className="text-xs space-y-1 border-b-2 border-dashed border-slate-800 pb-2.5">
                   <p className="font-black text-[11px] uppercase">=== DRAWER BALANCING ===</p>
@@ -9149,6 +9838,214 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 Save Recipe BOM
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* MODAL: SRI LANKAN STATUTORY PAYROLL GENERATOR */}
+      {processPayModalOpen && (
+        <div 
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 text-slate-900"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setProcessPayModalOpen(false);
+          }}
+        >
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Briefcase className="h-5 w-5 text-[#ff5500]" />
+                <h3 className="text-base font-black text-slate-900">Sri Lanka Compliant Pay Slip Generator</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProcessPayModalOpen(false)}
+                className="text-slate-400 hover:text-slate-900 cursor-pointer p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {(() => {
+              const breakdown = calculateSriLankanPayroll(payrollInputForm);
+              const selectedStaff = staffList.find(s => s.id === payrollInputForm.staffId) || staffList[0];
+
+              return (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!selectedStaff) return;
+
+                    const newSlip = {
+                      id: `PAY-${Date.now().toString().slice(-6)}`,
+                      staffId: selectedStaff.id,
+                      staffName: selectedStaff.name,
+                      role: selectedStaff.role,
+                      period: payrollInputForm.period,
+                      breakdown,
+                      notes: payrollInputForm.notes,
+                      processedBy: currentUser.name,
+                      processedAt: `${getLocalDateStr()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    };
+
+                    setPayrollRecords(prev => [newSlip, ...prev]);
+
+                    triggerAutoPrint({
+                      type: 'PAYSLIP_PRINT',
+                      data: newSlip
+                    }, `Payslip for ${selectedStaff.name}`);
+
+                    recordAuditLog(
+                      'PAYROLL_GENERATED',
+                      newSlip.id,
+                      `Issued statutory pay slip for ${selectedStaff.name} (${newSlip.period}): Net Take-Home ${settings.currency} ${breakdown.netSalary.toFixed(2)}`
+                    );
+
+                    setProcessPayModalOpen(false);
+                  }}
+                  className="mt-4 space-y-4"
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Employee</label>
+                      <select
+                        value={payrollInputForm.staffId}
+                        onChange={e => setPayrollInputForm(prev => ({ ...prev, staffId: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                      >
+                        {staffList.map(s => (
+                          <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">Salary Month</label>
+                      <input
+                        type="month"
+                        required
+                        value={payrollInputForm.period}
+                        onChange={e => setPayrollInputForm(prev => ({ ...prev, period: e.target.value }))}
+                        className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                      1. Earnings &amp; Allowances (LKR)
+                    </span>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Basic Salary</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={payrollInputForm.basicSalary}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, basicSalary: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Budgetary Relief (BRA)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={payrollInputForm.budgetaryAllowance}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, budgetaryAllowance: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Fixed Allowances (EPF)</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={payrollInputForm.otherAllowances}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, otherAllowances: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Service Gratuity Share</label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={payrollInputForm.serviceChargeBonus}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, serviceChargeBonus: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-emerald-700"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Overtime Hours (hrs)</label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        value={payrollInputForm.overtimeHours}
+                        onChange={e => setPayrollInputForm(prev => ({ ...prev, overtimeHours: e.target.value }))}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-600 mb-1">Performance Bonus</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={payrollInputForm.incentiveBonus}
+                        onChange={e => setPayrollInputForm(prev => ({ ...prev, incentiveBonus: e.target.value }))}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-900 text-white rounded-2xl space-y-1.5 text-xs font-mono">
+                    <div className="flex justify-between text-slate-400">
+                      <span>EPF Liable Base:</span>
+                      <span>{settings.currency} {breakdown.epfLiableEarnings.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-rose-400">
+                      <span>EPF Employee (8%):</span>
+                      <span>-{settings.currency} {breakdown.epfEmployee.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-indigo-300">
+                      <span>EPF Employer (12%):</span>
+                      <span>+{settings.currency} {breakdown.epfEmployer.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-300">
+                      <span>ETF Employer (3%):</span>
+                      <span>+{settings.currency} {breakdown.etfEmployer.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between pt-1 border-t border-slate-700 text-base font-black text-emerald-400">
+                      <span>Net Employee Take-Home:</span>
+                      <span>{settings.currency} {breakdown.netSalary.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setProcessPayModalOpen(false)}
+                      className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                    >
+                      Issue &amp; Print Payslip
+                    </button>
+                  </div>
+                </form>
+              );
+            })()}
           </div>
         </div>
       )}
