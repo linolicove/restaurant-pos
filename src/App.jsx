@@ -525,6 +525,7 @@ export default function App() {
   const [allocationModalOpen, setAllocationModalOpen] = useState(false);
   const [voidModalOpen, setVoidModalOpen] = useState(false);
   const [voidPayload, setVoidPayload] = useState({ item: null, reason: '' });
+  const [editingPayrollId, setEditingPayrollId] = useState(null);
 
   // Bill Editing Modal (Billing queue)
   const [editBillModalOpen, setEditBillModalOpen] = useState(false);
@@ -5768,7 +5769,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </div>
               </div>
             )}
-            
+
             {/* SUB-TAB 2: PAYROLL RECORDS & PAY SLIPS */}
             {payrollSubTab === 'payslips' && (
               <div className="space-y-6">
@@ -9964,18 +9965,26 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         <div 
           className="fixed inset-0 bg-black/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 text-slate-900"
           onClick={(e) => {
-            if (e.target === e.currentTarget) setProcessPayModalOpen(false);
+            if (e.target === e.currentTarget) {
+              setProcessPayModalOpen(false);
+              setEditingPayrollId(null);
+            }
           }}
         >
           <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Briefcase className="h-5 w-5 text-[#ff5500]" />
-                <h3 className="text-base font-black text-slate-900">Sri Lanka Compliant Pay Slip Generator</h3>
+                <h3 className="text-base font-black text-slate-900">
+                  {editingPayrollId ? 'Edit Processed Pay Slip' : 'Sri Lanka Compliant Pay Slip Generator'}
+                </h3>
               </div>
               <button
                 type="button"
-                onClick={() => setProcessPayModalOpen(false)}
+                onClick={() => {
+                  setProcessPayModalOpen(false);
+                  setEditingPayrollId(null);
+                }}
                 className="text-slate-400 hover:text-slate-900 cursor-pointer p-1"
               >
                 <X className="h-5 w-5" />
@@ -9998,41 +10007,88 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     const fullDateStr = getLocalDateStr();
                     const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-                    // Immutable sequential ID: PAY-YYYYMM-STAFFID-RANDOM
-                    const permanentSlipId = `PAY-${payrollInputForm.period.replace(/-/g, '')}-${selectedStaff.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
+                    if (editingPayrollId) {
+                      // 1. UPDATE EXISTING RECORD (PRESERVE ORIGINAL ID)
+                      const targetExisting = payrollRecords.find(r => r.id === editingPayrollId);
+                      const updatedSlipRecord = {
+                        ...(targetExisting || {}),
+                        id: editingPayrollId,
+                        staffId: selectedStaff.id,
+                        staffName: selectedStaff.name,
+                        role: selectedStaff.role,
+                        period: payrollInputForm.period,
+                        epfEtfEnabled: isEpfActive,
+                        breakdown,
+                        notes: payrollInputForm.notes || 'Salary Record Updated',
+                        lastEditedBy: currentUser.name,
+                        lastEditedByRole: currentUser.role,
+                        lastEditedAt: `${fullDateStr} ${timeStr}`,
+                        lastEditedAtISO: nowIso,
+                        revisions: [
+                          ...((targetExisting && targetExisting.revisions) || []),
+                          {
+                            editedAt: nowIso,
+                            editor: currentUser.name,
+                            previousNet: targetExisting ? (targetExisting.breakdown?.netSalary || targetExisting.netPay) : 0,
+                            newNet: breakdown.netSalary
+                          }
+                        ]
+                      };
 
-                    const permanentSlipRecord = {
-                      id: permanentSlipId,
-                      staffId: selectedStaff.id,
-                      staffName: selectedStaff.name,
-                      role: selectedStaff.role,
-                      period: payrollInputForm.period,
-                      epfEtfEnabled: payrollInputForm.epfEtfEnabled !== false,
-                      breakdown,
-                      notes: payrollInputForm.notes || 'Monthly Salary Disbursed',
-                      processedBy: currentUser.name,
-                      processedByRole: currentUser.role,
-                      processedAt: `${fullDateStr} ${timeStr}`,
-                      processedAtISO: nowIso,
-                      revisions: [] // Allows appending adjustments without deleting the original
-                    };
+                      setPayrollRecords(prev => prev.map(r => r.id === editingPayrollId ? updatedSlipRecord : r));
 
-                    // 1. Prepend to local state (saved to localStorage automatically)
-                    setPayrollRecords(prev => [permanentSlipRecord, ...prev]);
+                      // Auto-print updated version
+                      triggerAutoPrint({
+                        type: 'PAYSLIP_PRINT',
+                        data: updatedSlipRecord
+                      }, `Updated Payslip ${updatedSlipRecord.id} - ${selectedStaff.name}`);
 
-                    // 2. Direct thermal auto-print trigger
-                    triggerAutoPrint({
-                      type: 'PAYSLIP_PRINT',
-                      data: permanentSlipRecord
-                    }, `Payslip ${permanentSlipRecord.id} - ${selectedStaff.name}`);
+                      recordAuditLog(
+                        'PAYROLL_RECORD_EDITED',
+                        updatedSlipRecord.id,
+                        `Updated ${isEpfActive ? 'EPF-Liable' : 'EPF-Exempt'} payslip for ${selectedStaff.name} (${payrollInputForm.period}). New Net: ${settings.currency} ${breakdown.netSalary.toFixed(2)}. Cloud Sync Queued.`
+                      );
+                    } else {
+                      // 2. CREATE NEW PERMANENT RECORD
+                      const permanentSlipId = `PAY-${payrollInputForm.period.replace(/-/g, '')}-${selectedStaff.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
 
-                    // 3. Permanent immutable audit trail entry
-                    recordAuditLog(
-                      'PAYROLL_PERMANENT_RECORD_SAVED',
-                      permanentSlipRecord.id,
-                      `Issued ${payrollInputForm.epfEtfEnabled !== false ? 'EPF-Liable' : 'EPF-Exempt'} payslip for ${selectedStaff.name} (${payrollInputForm.period}). Net: ${settings.currency} ${breakdown.netSalary.toFixed(2)}. Cloud Sync Queued.`
-                    );
+                      const permanentSlipRecord = {
+                        id: permanentSlipId,
+                        staffId: selectedStaff.id,
+                        staffName: selectedStaff.name,
+                        role: selectedStaff.role,
+                        period: payrollInputForm.period,
+                        epfEtfEnabled: isEpfActive,
+                        breakdown,
+                        notes: payrollInputForm.notes || 'Monthly Salary Disbursed',
+                        processedBy: currentUser.name,
+                        processedByRole: currentUser.role,
+                        processedAt: `${fullDateStr} ${timeStr}`,
+                        processedAtISO: nowIso,
+                        revisions: []
+                      };
 
+                      setPayrollRecords(prev => [permanentSlipRecord, ...prev]);
+
+                      // Direct cloud append if using atomic append
+                      if (typeof appendCloudArchive === 'function') {
+                        appendCloudArchive('payroll_records', permanentSlipRecord);
+                      }
+
+                      // Auto-print newly issued slip
+                      triggerAutoPrint({
+                        type: 'PAYSLIP_PRINT',
+                        data: permanentSlipRecord
+                      }, `Payslip ${permanentSlipRecord.id} - ${selectedStaff.name}`);
+
+                      recordAuditLog(
+                        'PAYROLL_PERMANENT_RECORD_SAVED',
+                        permanentSlipRecord.id,
+                        `Issued ${isEpfActive ? 'EPF-Liable' : 'EPF-Exempt'} payslip for ${selectedStaff.name} (${payrollInputForm.period}). Net: ${settings.currency} ${breakdown.netSalary.toFixed(2)}. Cloud Sync Queued.`
+                      );
+                    }
+
+                    setEditingPayrollId(null);
                     setProcessPayModalOpen(false);
                   }}
                   className="mt-4 space-y-4"
@@ -10218,7 +10274,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <div className="flex gap-2 pt-1">
                     <button
                       type="button"
-                      onClick={() => setProcessPayModalOpen(false)}
+                      onClick={() => {
+                        setProcessPayModalOpen(false);
+                        setEditingPayrollId(null);
+                      }}
                       className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-colors"
                     >
                       Cancel
@@ -10227,7 +10286,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       type="submit"
                       className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors"
                     >
-                      Issue &amp; Print Payslip
+                      {editingPayrollId ? 'Save Changes & Reprint' : 'Issue & Print Payslip'}
                     </button>
                   </div>
                 </form>
