@@ -4318,249 +4318,210 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         {/* VIEW 7: CASHIER SHIFTS & DRAWER */}
         {activeTab === 'shifts' && (
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">Cashier Shift &amp; Drawer Balancing</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Active Shift: <strong className="font-mono text-slate-800">{currentShift.shiftId}</strong> • Opened by {currentShift.openedBy} at {currentShift.openedAt}
-                </p>
-              </div>
-
-              {(() => {
-                const allPayouts = currentShift.payouts || [];
-                const approvedPayouts = allPayouts.filter(p => p.status === 'APPROVED' || !p.status);
-                const totalCashOut = approvedPayouts.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
-
-                let shiftCashSales = 0;
-                let shiftCardSales = 0;
-                let shiftOtherSales = 0;
-                let shiftTotalBills = 0;
-
-                if (Array.isArray(transactions)) {
-                  for (let i = 0; i < transactions.length; i++) {
-                    const t = transactions[i];
-                    if (!t) continue;
-                    const method = String(t.paymentMethod || '').trim().toUpperCase();
-                    const isCash = method === 'CASH';
-                    const isCard = method === 'CARD';
-                    const matchesShift = t.shiftId 
-                      ? t.shiftId === currentShift.shiftId 
-                      : (extractDateStr(t.date) === currentShift.openedDate && !t.shiftId);
-
-                    if (matchesShift) {
-                      shiftTotalBills += 1;
-                      const amt = Number(t.total) || 0;
-                      if (isCash) shiftCashSales += amt;
-                      else if (isCard) shiftCardSales += amt;
-                      else shiftOtherSales += amt;
-                    }
-                  }
-                }
-
-                let countedCash = 0;
-                if (denominations && typeof denominations === 'object') {
-                  Object.entries(denominations).forEach(([denom, count]) => {
-                    countedCash += Number(denom) * (Number(count) || 0);
-                  });
-                }
-
-                // Preserve whatever float this shift was opened with
-                const currentShiftFloat = Number(currentShift.startingFloat) || Number(runningFloat) || 10000.00;
-                const expectedCash = Number((currentShiftFloat + shiftCashSales - totalCashOut).toFixed(2));
-                const shiftVariance = Number((countedCash - expectedCash).toFixed(2));
-                const netTotalVariance = Number(((Number(unsettledVariance) || 0) + shiftVariance).toFixed(2));
-
-                const buildDenominationsMatchingAmount = (target) => {
-                  let rem = Math.floor(target);
-                  const result = { 5000: 0, 1000: 0, 500: 0, 100: 0, 50: 0, 20: 0 };
-                  const denoms = [5000, 1000, 500, 100, 50, 20];
-                  for (const d of denoms) {
-                    if (rem >= d) {
-                      result[d] = Math.floor(rem / d);
-                      rem %= d;
-                    }
-                  }
-                  return result;
-                };
-
-                return (
-                  <div className="flex items-center gap-2.5 shrink-0">
-                    {/* Settle Drawer Button: Manually sets new base float without 10000 fallback or auto-matching counts */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const currentFloatVal = Number(currentShift.startingFloat) || 0;
-                        const inputVal = prompt(
-                          `Enter new base float to bank and settle drawer:`,
-                          currentFloatVal.toString()
-                        );
-                        if (inputVal !== null) {
-                          const parsed = parseFloat(inputVal);
-                          const targetFloat = !isNaN(parsed) && parsed >= 0 ? parsed : currentFloatVal;
-
-                          setCurrentShift(prev => ({
-                            ...prev,
-                            startingFloat: targetFloat
-                          }));
-                          setUnsettledVariance(0);
-
-                          recordAuditLog(
-                            'DRAWER_SETTLED_MANUAL',
-                            currentShift.shiftId,
-                            `Manager/Admin ${currentUser.name} manually set float to ${settings.currency} ${targetFloat.toFixed(2)}. Unsettled variance reset to 0.`
-                          );
-                        }
-                      }}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span>Settle &amp; Bank Drawer</span>
-                    </button>
-
-                    {/* Close Shift: Keeps exact previous float and leaves denominations intact */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        // 1. Keep the previous starting float exactly as it was
-                        const previousFloat = Number(currentShift.startingFloat) || 0;
-
-                        const closedShift = {
-                          ...currentShift,
-                          closedDate: getLocalDateStr(),
-                          closedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                          closedBy: currentUser.name,
-                          status: 'CLOSED',
-                          metrics: {
-                            startingFloat: previousFloat,
-                            cashSales: shiftCashSales,
-                            cardSales: shiftCardSales,
-                            otherSales: shiftOtherSales,
-                            grossSales: shiftCashSales + shiftCardSales + shiftOtherSales,
-                            totalBills: shiftTotalBills,
-                            cashOutTotal: totalCashOut,
-                            approvedPayouts,
-                            expectedCash,
-                            countedCash,
-                            variance: shiftVariance,
-                            carriedDiscrepancy: netTotalVariance,
-                            denominations: { ...denominations }
-                          }
-                        };
-
-                        setShiftHistory(prev => [closedShift, ...prev]);
-
-                        // Print Z-Report
-                        triggerAutoPrint({
-                          type: 'Z_REPORT',
-                          data: closedShift
-                        }, `Shift ${closedShift.shiftId} Closed`);
-
-                        // Tag invoices to this closed shift
-                        setTransactions(prev => prev.map(t => {
-                          const matchesThisShift = t.shiftId === currentShift.shiftId || (!t.shiftId && extractDateStr(t.date) === currentShift.openedDate);
-                          if (matchesThisShift) {
-                            return { ...t, shiftId: currentShift.shiftId };
-                          }
-                          return t;
-                        }));
-
-                        // 2. Open new shift: Keep startingFloat EXACTLY the same as previous close
-                        const nextDate = getLocalDateStr();
-                        const shiftSequence = Date.now().toString().slice(-4);
-                        const newShiftId = `SHIFT-${nextDate.replace(/-/g, '')}-${shiftSequence}`;
-
-                        setCurrentShift({
-                          shiftId: newShiftId,
-                          openedDate: nextDate,
-                          openedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                          openedBy: currentUser.name,
-                          startingFloat: previousFloat, // Retains exact previous close float
-                          status: 'OPEN',
-                          payouts: []
-                        });
-
-                        // 3. DO NOT reset or match denominations.
-                        // Leave denominations completely untouched so whatever the cashier entered stays entered.
-
-                        const shiftVarianceText = shiftVariance === 0 
-                          ? 'Balanced' 
-                          : shiftVariance > 0 
-                          ? `Overage of ${settings.currency} ${shiftVariance.toFixed(2)}` 
-                          : `Shortage of ${settings.currency} ${Math.abs(shiftVariance).toFixed(2)}`;
-
-                        recordAuditLog(
-                          'SHIFT_CLOSED_Z_REPORT',
-                          closedShift.shiftId,
-                          `Shift closed by ${currentUser.name}. Float preserved at ${settings.currency} ${previousFloat.toFixed(2)}. Denomination counts remained as entered. Status: ${shiftVarianceText}.`
-                        );
-                      }}
-                      className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer shrink-0"
-                    >
-                      <Lock className="h-4 w-4" />
-                      <span>Close Shift &amp; Print Z-Report</span>
-                    </button>
-                  </div>
-                );
-              })()}
-            </div>
-
             {(() => {
+              // 1. Calculate Approved Cash-Out Payouts
               const allPayouts = currentShift.payouts || [];
               const approvedPayouts = allPayouts.filter(p => p.status === 'APPROVED' || !p.status);
               const pendingPayouts = allPayouts.filter(p => p.status === 'PENDING');
               const totalApprovedCashOut = approvedPayouts.reduce((acc, p) => acc + (parseFloat(p.amount) || 0), 0);
 
+              // 2. Calculate Cash Sales for current shift
               let shiftCashSales = 0;
+              let shiftCardSales = 0;
+              let shiftOtherSales = 0;
+              let shiftTotalBills = 0;
+
               if (Array.isArray(transactions)) {
                 for (let i = 0; i < transactions.length; i++) {
                   const t = transactions[i];
                   if (!t) continue;
-                  const isCash = String(t.paymentMethod || '').trim().toUpperCase() === 'CASH';
+                  const method = String(t.paymentMethod || '').trim().toUpperCase();
                   const matchesShift = t.shiftId 
                     ? t.shiftId === currentShift.shiftId 
                     : (extractDateStr(t.date) === currentShift.openedDate && !t.shiftId);
 
-                  if (isCash && matchesShift) {
-                    shiftCashSales += Number(t.total) || 0;
+                  if (matchesShift) {
+                    shiftTotalBills += 1;
+                    const amt = Number(t.total) || 0;
+                    if (method === 'CASH') shiftCashSales += amt;
+                    else if (method === 'CARD') shiftCardSales += amt;
+                    else shiftOtherSales += amt;
                   }
                 }
               }
 
+              // 3. Physical Cash Notes Count
               let countedCash = 0;
+              let hasCounted = false;
               if (denominations && typeof denominations === 'object') {
                 Object.entries(denominations).forEach(([denom, count]) => {
-                  countedCash += Number(denom) * (Number(count) || 0);
+                  const n = Number(count) || 0;
+                  if (n > 0) hasCounted = true;
+                  countedCash += Number(denom) * n;
                 });
               }
 
-              const expectedCash = Number(((currentShift.startingFloat || 0) + shiftCashSales - totalApprovedCashOut).toFixed(2));
+              // 4. Expected Drawer Cash: Float + Sales - CashOut
+              const openingFloat = Number(currentShift.startingFloat) || 10000.00;
+              const expectedCash = Number((openingFloat + shiftCashSales - totalApprovedCashOut).toFixed(2));
+
+              // 5. Drawer Variance = Counted Cash - Expected Cash
               const currentShiftVariance = Number((countedCash - expectedCash).toFixed(2));
               const carriedShortage = Number(unsettledVariance) || 0;
               const netTotalVariance = Number((currentShiftVariance + carriedShortage).toFixed(2));
 
               return (
                 <>
-                  {/* KPI ROW */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
-                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                      <p className="text-[10px] font-black uppercase text-slate-400">Opening Float</p>
-                      <p className="text-xl font-black font-mono text-slate-900 mt-1">
-                        {settings.currency} {currentShift.startingFloat.toFixed(2)}
+                  {/* Shift Top Header */}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900">Cashier Shift &amp; Drawer Balancing</h2>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Active Shift: <strong className="font-mono text-slate-800">{currentShift.shiftId}</strong> • Opened by {currentShift.openedBy} at {currentShift.openedAt}
                       </p>
-                      <span className="text-[10px] text-slate-400 font-medium">Brought forward float</span>
                     </div>
 
+                    <div className="flex items-center gap-2 shrink-0">
+                      {/* Settle Drawer Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const currentFloatVal = Number(currentShift.startingFloat) || 10000.00;
+                          const inputVal = prompt(
+                            `Enter standard base float to retain in drawer for next shift:`,
+                            currentFloatVal.toString()
+                          );
+                          if (inputVal !== null) {
+                            const parsed = parseFloat(inputVal);
+                            const targetFloat = !isNaN(parsed) && parsed >= 0 ? parsed : currentFloatVal;
+
+                            setCurrentShift(prev => ({
+                              ...prev,
+                              startingFloat: targetFloat
+                            }));
+                            setUnsettledVariance(0);
+
+                            recordAuditLog(
+                              'DRAWER_SETTLED_MANUAL',
+                              currentShift.shiftId,
+                              `Shift ${currentShift.shiftId} settled. Base float set to ${settings.currency} ${targetFloat.toFixed(2)}. Unsettled variance cleared.`
+                            );
+                            alert('Drawer settled and discrepancy balance cleared.');
+                          }
+                        }}
+                        className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span>Settle &amp; Bank Drawer</span>
+                      </button>
+
+                      {/* Close Shift & Print Z-Report Button */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const effectiveCountedCash = hasCounted ? countedCash : expectedCash;
+                          const effectiveOpeningFloat = Number(currentShift.startingFloat) || 10000.00;
+
+                          const closedShift = {
+                            ...currentShift,
+                            closedDate: getLocalDateStr(),
+                            closedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            closedBy: currentUser.name,
+                            status: 'CLOSED',
+                            metrics: {
+                              startingFloat: effectiveOpeningFloat,
+                              cashSales: shiftCashSales,
+                              cardSales: shiftCardSales,
+                              otherSales: shiftOtherSales,
+                              grossSales: shiftCashSales + shiftCardSales + shiftOtherSales,
+                              totalBills: shiftTotalBills,
+                              cashOutTotal: totalApprovedCashOut,
+                              approvedPayouts,
+                              expectedCash,
+                              countedCash: effectiveCountedCash,
+                              variance: currentShiftVariance,
+                              carriedDiscrepancy: netTotalVariance,
+                              denominations: { ...denominations }
+                            }
+                          };
+
+                          // 1. Save to shift archive
+                          setShiftHistory(prev => [closedShift, ...prev]);
+
+                          // 2. Print Z-Report
+                          triggerAutoPrint({
+                            type: 'Z_REPORT',
+                            data: closedShift
+                          }, `Shift ${closedShift.shiftId} Closed`);
+
+                          // 3. Tag invoices to this closed shift
+                          setTransactions(prev => prev.map(t => {
+                            const matchesThisShift = t.shiftId === currentShift.shiftId || (!t.shiftId && extractDateStr(t.date) === currentShift.openedDate);
+                            return matchesThisShift ? { ...t, shiftId: currentShift.shiftId } : t;
+                          }));
+
+                          // 4. Open new shift using the physical note count as the new base float
+                          const nextDate = getLocalDateStr();
+                          const shiftSequence = Date.now().toString().slice(-4);
+                          const newShiftId = `SHIFT-${nextDate.replace(/-/g, '')}-${shiftSequence}`;
+
+                          setCurrentShift({
+                            shiftId: newShiftId,
+                            openedDate: nextDate,
+                            openedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                            openedBy: currentUser.name,
+                            startingFloat: effectiveCountedCash, // Physical note total becomes the new opening float
+                            status: 'OPEN',
+                            payouts: []
+                          });
+
+                          // NOTE: We deliberately do NOT call setDenominations(...) to reset.
+                          // The physical note counts stay intact in the drawer inputs.
+
+                          const shiftVarianceText = currentShiftVariance === 0 
+                            ? 'Balanced ($0.00)' 
+                            : currentShiftVariance > 0 
+                            ? `Overage of ${settings.currency} ${currentShiftVariance.toFixed(2)}` 
+                            : `Shortage of ${settings.currency} ${Math.abs(currentShiftVariance).toFixed(2)}`;
+
+                          recordAuditLog(
+                            'SHIFT_CLOSED_Z_REPORT',
+                            closedShift.shiftId,
+                            `Shift closed by ${currentUser.name}. Physical count of ${settings.currency} ${effectiveCountedCash.toFixed(2)} retained as opening float for ${newShiftId}. Note counts preserved. Result: ${shiftVarianceText}.`
+                          );
+                        }}
+                        className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer shrink-0"
+                      >
+                        <Lock className="h-4 w-4" />
+                        <span>Close Shift &amp; Print Z-Report</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 5-Column Equation KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+                    {/* A. Opening Cash Float */}
                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
-                      <p className="text-[10px] font-black uppercase text-slate-400">Cash Sales Inflow</p>
+                      <p className="text-[10px] font-black uppercase text-slate-400">1. Opening Float</p>
+                      <p className="text-xl font-black font-mono text-slate-900 mt-1">
+                        {settings.currency} {openingFloat.toFixed(2)}
+                      </p>
+                      <span className="text-[10px] text-slate-400 font-medium">Drawer base float</span>
+                    </div>
+
+                    {/* B. Cash Sales Inflow */}
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
+                      <p className="text-[10px] font-black uppercase text-slate-400">2. + Cash Sales</p>
                       <p className="text-xl font-black font-mono text-emerald-600 mt-1">
                         +{settings.currency} {shiftCashSales.toFixed(2)}
                       </p>
-                      <span className="text-[10px] text-slate-400 font-medium">Collected this shift</span>
+                      <span className="text-[10px] text-slate-400 font-medium">{shiftTotalBills} orders settled</span>
                     </div>
 
+                    {/* C. Cash Out Disbursements */}
                     <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <p className="text-[10px] font-black uppercase text-slate-400">Cash Out Payouts</p>
+                        <p className="text-[10px] font-black uppercase text-slate-400">3. - Cash Out</p>
                         {pendingPayouts.length > 0 && (
                           <span className="px-1.5 py-0.2 rounded-full text-[9px] font-bold bg-amber-100 text-amber-800">
                             {pendingPayouts.length} Pending
@@ -4570,72 +4531,82 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       <p className="text-xl font-black font-mono text-rose-600 mt-1">
                         -{settings.currency} {totalApprovedCashOut.toFixed(2)}
                       </p>
-                      <span className="text-[10px] text-slate-400 font-medium">Disbursed expenses</span>
+                      <span className="text-[10px] text-slate-400 font-medium">Approved payouts</span>
                     </div>
 
-                    <div className="bg-white p-4 rounded-2xl border-2 border-[#ff5500]/30 bg-orange-50/20 shadow-xs">
-                      <p className="text-[10px] font-black uppercase text-[#ff5500]">Expected in Drawer</p>
+                    {/* D. Expected Cash in Drawer */}
+                    <div className="bg-white p-4 rounded-2xl border-2 border-[#ff5500]/40 bg-orange-50/20 shadow-xs">
+                      <p className="text-[10px] font-black uppercase text-[#ff5500]">4. = Expected Cash</p>
                       <p className="text-2xl font-black font-mono text-slate-950 mt-1">
                         {settings.currency} {expectedCash.toFixed(2)}
                       </p>
-                      <span className="text-[10px] text-slate-500 font-bold">Float + Cash Sales - CashOut</span>
+                      <span className="text-[10px] text-slate-500 font-bold">Float + Sales - CashOut</span>
                     </div>
 
-                    {/* DYNAMIC VARIANCE CARD: Updates live as the cashier edits denomination counts to balance to zero */}
+                    {/* E. Drawer Variance: Counted Cash - Expected Cash */}
                     <div className={`p-4 rounded-2xl border shadow-xs ${
-                      netTotalVariance === 0
+                      !hasCounted
+                        ? 'bg-slate-50 border-slate-200 text-slate-700'
+                        : currentShiftVariance === 0
                         ? 'bg-emerald-50/70 border-emerald-300 text-emerald-950'
-                        : netTotalVariance > 0
+                        : currentShiftVariance > 0
                         ? 'bg-blue-50/70 border-blue-300 text-blue-950'
                         : 'bg-rose-50/70 border-rose-300 text-rose-950'
                     }`}>
                       <div className="flex items-center justify-between">
                         <p className="text-[10px] font-black uppercase tracking-wider opacity-75">
-                          Drawer Variance
+                          5. Drawer Variance
                         </p>
-                        {carriedShortage !== 0 && (
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-rose-200 text-rose-900">
-                            Carry: {settings.currency} {carriedShortage.toFixed(2)}
+                        {hasCounted && (
+                          <span className="text-[9px] font-mono font-bold">
+                            Count: {settings.currency}{countedCash.toFixed(0)}
                           </span>
                         )}
                       </div>
 
                       <p className="text-xl font-black font-mono mt-1">
-                        {netTotalVariance > 0 ? '+' : ''}{settings.currency} {netTotalVariance.toFixed(2)}
+                        {!hasCounted ? (
+                          <span className="text-slate-400 text-sm">Enter Counts Below</span>
+                        ) : (
+                          `${currentShiftVariance > 0 ? '+' : ''}${settings.currency} ${currentShiftVariance.toFixed(2)}`
+                        )}
                       </p>
 
                       <div className="flex items-center justify-between mt-0.5">
                         <span className="text-[10px] font-bold">
-                          {netTotalVariance === 0 
-                            ? '✓ Balanced ($0.00)' 
-                            : netTotalVariance > 0 
-                            ? 'Overage' 
-                            : 'Shortage'}
+                          {!hasCounted 
+                            ? 'Awaiting note count' 
+                            : currentShiftVariance === 0 
+                            ? '✓ Exactly Balanced' 
+                            : currentShiftVariance > 0 
+                            ? 'Cash Overage' 
+                            : 'Cash Shortage'}
                         </span>
                         {currentUser.role === 'Administrator' && carriedShortage !== 0 && (
                           <button
                             type="button"
                             onClick={() => {
-                              if (window.confirm(`Clear and settle the carried discrepancy of ${settings.currency} ${carriedShortage.toFixed(2)}?`)) {
+                              if (window.confirm(`Clear carried discrepancy of ${settings.currency} ${carriedShortage.toFixed(2)}?`)) {
                                 setUnsettledVariance(0);
                                 recordAuditLog(
                                   'VARIANCE_SETTLED',
                                   currentShift.shiftId,
-                                  `Administrator ${currentUser.name} cleared carried variance of ${settings.currency} ${carriedShortage.toFixed(2)}`
+                                  `Admin ${currentUser.name} cleared carried variance of ${settings.currency} ${carriedShortage.toFixed(2)}`
                                 );
                               }
                             }}
                             className="text-[9px] font-bold text-indigo-700 hover:text-indigo-900 underline cursor-pointer"
                           >
-                            Settle / Clear
+                            Clear Carry
                           </button>
                         )}
                       </div>
                     </div>
                   </div>
 
+                  {/* Cash Out & Payout Management Section */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* CASH OUT REQUEST FORM */}
+                    {/* Disburse Drawer Cash Out Form */}
                     <div className="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-4">
                       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div className="flex items-center gap-2">
@@ -4644,9 +4615,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           </div>
                           <div>
                             <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                              Request Drawer Cash Out
+                              Disburse Drawer Cash Out
                             </h3>
-                            <p className="text-[10px] text-slate-400">Auto-prints receipt voucher on submission</p>
+                            <p className="text-[10px] text-slate-400">Prints voucher immediately on submission</p>
                           </div>
                         </div>
                       </div>
@@ -4681,6 +4652,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                           setExpenses(prev => [newCashOut, ...prev]);
 
+                          // Trigger immediate thermal voucher print
                           triggerAutoPrint({
                             type: 'CASH_OUT_VOUCHER',
                             data: newCashOut
@@ -4729,7 +4701,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             >
                               <option value="Supplier / Vendor">Supplier / Vendor</option>
                               <option value="Market Produce">Market Produce</option>
-                              <option value="Safe Drop">Safe Drop (Cash Deposit)</option>
+                              <option value="Safe Drop">Safe Drop (Bank Deposit)</option>
                               <option value="Petty Cash / Store Supplies">Petty Cash / Supplies</option>
                               <option value="Staff Tip Out">Staff Tip Out</option>
                               <option value="Other Emergency">Other Emergency</option>
@@ -4753,7 +4725,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                         <div>
                           <label className="block text-[10px] font-extrabold uppercase text-slate-500 mb-1">
-                            Paid To / Recipient (Optional)
+                            Paid To / Recipient
                           </label>
                           <input
                             type="text"
@@ -4774,7 +4746,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       </form>
                     </div>
 
-                    {/* CASH OUT QUEUE & HISTORY */}
+                    {/* Cash Out Log List */}
                     <div className="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col justify-between space-y-4">
                       <div>
                         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
@@ -4784,9 +4756,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             </div>
                             <div>
                               <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                                Cash Out Authorization Queue &amp; History
+                                Shift Disbursements &amp; Approvals
                               </h3>
-                              <p className="text-[10px] text-slate-400">Approve payouts and reprint audit slips</p>
+                              <p className="text-[10px] text-slate-400">Current shift drawer payouts</p>
                             </div>
                           </div>
                           <span className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
@@ -4821,7 +4793,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                       </span>
                                     </div>
                                     <p className="text-[10px] text-slate-500">
-                                      <span className="font-semibold text-slate-700">{item.category}</span> • Recipient: {item.recipient || 'N/A'} • Req by {item.requestedBy} at {item.createdAt || item.time}
+                                      <span className="font-semibold text-slate-700">{item.category}</span> • Recipient: {item.recipient || 'N/A'} • Req by {item.requestedBy}
                                     </p>
                                     {isApproved && item.approvedBy && (
                                       <p className="text-[9px] font-mono text-emerald-700">
@@ -4925,53 +4897,54 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       </div>
                     </div>
                   </div>
+
+                  {/* Physical Note Breakdown Section: Updates Variance in Real-Time */}
+                  <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
+                        <Coins className="h-4 w-4 text-[#ff5500]" /> Physical Cash Note Count
+                      </h3>
+                      <div className="flex items-center gap-3">
+                        <span className="text-xs font-mono font-black px-3 py-1 rounded-xl bg-slate-900 text-white shadow-xs">
+                          Counted Total: {settings.currency} {countedCash.toFixed(2)}
+                        </span>
+                        {hasCounted && (
+                          <span className={`text-xs font-mono font-black px-3 py-1 rounded-xl ${
+                            currentShiftVariance === 0 ? 'bg-emerald-100 text-emerald-800' : currentShiftVariance > 0 ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'
+                          }`}>
+                            Variance: {currentShiftVariance > 0 ? '+' : ''}{settings.currency} {currentShiftVariance.toFixed(2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {[5000, 1000, 500, 100, 50, 20].map(denom => (
+                        <div key={denom} className="flex flex-col justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
+                          <div className="flex justify-between items-center text-xs">
+                            <span className="font-mono font-bold text-slate-700">{settings.currency} {denom}</span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {settings.currency} {((Number(denominations[denom]) || 0) * denom).toFixed(0)}
+                            </span>
+                          </div>
+                          <input
+                            type="number"
+                            min="0"
+                            value={denominations[denom] !== undefined && denominations[denom] !== 0 ? denominations[denom] : ''}
+                            onChange={e => {
+                              const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0);
+                              setDenominations(prev => ({ ...prev, [denom]: val }));
+                            }}
+                            placeholder="0 notes"
+                            className="w-full mt-2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-center text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#ff5500]"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </>
               );
             })()}
-
-            {/* PHYSICAL DENOMINATION BREAKDOWN: Cashier edits counts to update variance live to balance to zero */}
-            <div className="bg-white p-5 rounded-2xl border border-slate-200 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-2">
-                  <Coins className="h-4 w-4 text-[#ff5500]" /> Physical Denomination Breakdown
-                </h3>
-                {(() => {
-                  const countedTotal = Object.entries(denominations).reduce(
-                    (sum, [denom, count]) => sum + (Number(denom) * (Number(count) || 0)),
-                    0
-                  );
-                  return (
-                    <span className="text-xs font-mono font-black px-3 py-1 rounded-xl bg-slate-900 text-white shadow-xs">
-                      Total Counted: {settings.currency} {countedTotal.toFixed(2)}
-                    </span>
-                  );
-                })()}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-                {[5000, 1000, 500, 100, 50, 20].map(denom => (
-                  <div key={denom} className="flex flex-col justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-mono font-bold text-slate-700">{settings.currency} {denom}</span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {settings.currency} {((Number(denominations[denom]) || 0) * denom).toFixed(0)}
-                      </span>
-                    </div>
-                    <input
-                      type="number"
-                      min="0"
-                      value={denominations[denom] !== undefined ? denominations[denom] : ''}
-                      onChange={e => {
-                        const val = e.target.value === '' ? '' : Math.max(0, parseInt(e.target.value) || 0);
-                        setDenominations(prev => ({ ...prev, [denom]: val }));
-                      }}
-                      placeholder="0"
-                      className="w-full mt-2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-center text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-[#ff5500]"
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
 
@@ -8054,14 +8027,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 <p className="text-[10px] text-slate-400 text-center mt-1">Default Admin PIN: 1234</p>
               </div>
 
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setCashOutApprovalModal({ open: false, item: null, managerPin: '', error: '' })}
-                  className="flex-1 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs cursor-pointer"
-                >
-                  Cancel
-                </button>
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                {/* REJECT BUTTON */}
                 <button
                   type="button"
                   onClick={() => {
@@ -8072,15 +8039,62 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     }
 
                     const targetItem = cashOutApprovalModal.item;
+                    const updated = {
+                      ...targetItem,
+                      status: 'REJECTED',
+                      rejectedBy: manager.name
+                    };
+
                     setCurrentShift(prev => ({
                       ...prev,
-                      payouts: prev.payouts.map(p => p.id === targetItem.id ? {
-                        ...p,
-                        status: 'APPROVED',
-                        approvedBy: manager.name,
-                        approvedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      } : p)
+                      payouts: prev.payouts.map(p => p.id === targetItem.id ? updated : p)
                     }));
+
+                    setExpenses(prev => prev.map(p => p.id === targetItem.id ? updated : p));
+
+                    recordAuditLog(
+                      'CASH_OUT_REJECTED',
+                      targetItem.id,
+                      `Manager ${manager.name} rejected cash out request ${targetItem.id} of ${settings.currency} ${targetItem.amount}`
+                    );
+
+                    setCashOutApprovalModal({ open: false, item: null, managerPin: '', error: '' });
+                  }}
+                  className="py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  ✕ Reject
+                </button>
+
+                {/* APPROVE BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const manager = staffList.find(s => (s.role === 'Administrator' || s.role === 'Manager') && s.pin === cashOutApprovalModal.managerPin.trim());
+                    if (!manager) {
+                      setCashOutApprovalModal(prev => ({ ...prev, error: 'Invalid Manager/Admin PIN' }));
+                      return;
+                    }
+
+                    const targetItem = cashOutApprovalModal.item;
+                    const updated = {
+                      ...targetItem,
+                      status: 'APPROVED',
+                      approvedBy: manager.name,
+                      approvedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                    };
+
+                    setCurrentShift(prev => ({
+                      ...prev,
+                      payouts: prev.payouts.map(p => p.id === targetItem.id ? updated : p)
+                    }));
+
+                    setExpenses(prev => prev.map(p => p.id === targetItem.id ? updated : p));
+
+                    // Auto-print thermal disbursement voucher upon manager sign-off
+                    triggerAutoPrint({
+                      type: 'CASH_OUT_VOUCHER',
+                      data: updated
+                    }, `Authorized Voucher #${targetItem.id}`);
 
                     recordAuditLog(
                       'CASH_OUT_APPROVED_PIN',
@@ -8090,9 +8104,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                     setCashOutApprovalModal({ open: false, item: null, managerPin: '', error: '' });
                   }}
-                  className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer"
+                  className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors"
                 >
-                  Authorize Payout
+                  ✓ Approve &amp; Print
                 </button>
               </div>
             </div>
