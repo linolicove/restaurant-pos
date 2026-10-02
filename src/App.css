@@ -1,0 +1,43 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@media print {
+  body {
+    background: transparent !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .printable-area {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+  }
+  .thermal-mode {
+    width: 72mm !important;
+    max-width: 72mm !important;
+    margin: 0 auto !important;
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    color: #000 !important;
+  }
+  .a4-mode {
+    width: 210mm !important;
+    min-height: 297mm !important;
+    padding: 20mm !important;
+    margin: 0 auto !important;
+    font-family: ui-sans-serif, system-ui, sans-serif !important;
+    font-size: 13px !important;
+    color: #0F2D3C !important;
+  }
+  @page {
+    margin: 0;
+  }
+}
