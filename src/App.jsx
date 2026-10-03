@@ -5520,37 +5520,31 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             </div>
 
-           {/* Calculations Engine */}
+           {/* Calculations Engine (Mapped directly to transactions & expenses) */}
             {(() => {
               const todayStr = getLocalDateStr();
               const currentMonthStr = todayStr.slice(0, 7); // 'YYYY-MM'
 
-              // Use the actual POS state names: settledBills & cashOuts
-              const salesData = (typeof settledBills !== 'undefined' && Array.isArray(settledBills))
-                ? settledBills
-                : ((typeof orders !== 'undefined' && Array.isArray(orders)) ? orders : []);
+              // Use the actual states from App.jsx: transactions & expenses
+              const salesData = Array.isArray(transactions) ? transactions : [];
+              const expenseData = Array.isArray(expenses) ? expenses : (currentShift?.payouts || []);
+              const payrollData = Array.isArray(payrollRecords) ? payrollRecords : [];
 
-              const expenseData = (typeof cashOuts !== 'undefined' && Array.isArray(cashOuts))
-                ? cashOuts
-                : ((typeof cashOutVouchers !== 'undefined' && Array.isArray(cashOutVouchers)) ? cashOutVouchers : []);
-
-              const payrollData = (typeof payrollRecords !== 'undefined' && Array.isArray(payrollRecords))
-                ? payrollRecords
-                : [];
-
-              // 1. Filter Sales / Revenue
+              // 1. Filter Sales / Revenue (uses startsWith because date has time appended)
               const filteredSales = salesData.filter(inv => {
                 if (!inv) return false;
-                if (accountingPeriod === 'TODAY') return inv.date === todayStr;
-                if (accountingPeriod === 'THIS_MONTH') return inv.date && String(inv.date).startsWith(currentMonthStr);
+                const dStr = extractDateStr(inv.date) || String(inv.date || '');
+                if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
+                if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
                 return true;
               });
 
               // 2. Filter Cash-Out Expenses (Disbursements)
               const filteredExpenses = expenseData.filter(v => {
                 if (!v || v.status === 'REJECTED') return false;
-                if (accountingPeriod === 'TODAY') return v.date === todayStr;
-                if (accountingPeriod === 'THIS_MONTH') return v.date && String(v.date).startsWith(currentMonthStr);
+                const dStr = extractDateStr(v.date || v.createdAt) || String(v.date || '');
+                if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
+                if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
                 return true;
               });
 
@@ -5567,12 +5561,13 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const totalTaxCollected = filteredSales.reduce((acc, inv) => acc + (Number(inv.tax) || 0), 0);
               const totalServiceCharge = filteredSales.reduce((acc, inv) => acc + (Number(inv.serviceCharge) || 0), 0);
               const totalDiscountsGiven = filteredSales.reduce((acc, inv) => acc + (Number(inv.discount) || 0), 0);
-              const netSalesRevenue = grossSalesRevenue - totalDiscountsGiven;
+              const calculatedNet = grossSalesRevenue - totalDiscountsGiven;
+              const netSalesRevenue = calculatedNet > 0 ? calculatedNet : filteredSales.reduce((acc, inv) => acc + (Number(inv.total) || 0), 0);
 
               // Expense Metrics: Cash Out Categorization Breakdown
               const expenseCategories = {};
               filteredExpenses.forEach(exp => {
-                const cat = (exp.reason || exp.category || 'General Purchases').trim();
+                const cat = (exp.category || exp.reason || 'General Purchases').trim();
                 const amt = Number(exp.amount) || 0;
                 expenseCategories[cat] = (expenseCategories[cat] || 0) + amt;
               });
@@ -5597,13 +5592,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   if (!itemSalesMap[item.name]) {
                     itemSalesMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
                   }
-                  itemSalesMap[item.name].qty += (Number(item.qty) || 1);
-                  itemSalesMap[item.name].revenue += ((Number(item.price) || 0) * (Number(item.qty) || 1));
+                  const qty = Number(item.qty) || 1;
+                  const price = Number(item.price) || 0;
+                  itemSalesMap[item.name].qty += qty;
+                  itemSalesMap[item.name].revenue += (price * qty);
                 });
               });
               const topSoldItems = Object.values(itemSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
               const maxItemQty = topSoldItems.length > 0 ? Math.max(...topSoldItems.map(i => i.qty)) : 1;
-
               return (
                 <div className="space-y-6">
                   {/* Top Key Performance Cards */}
