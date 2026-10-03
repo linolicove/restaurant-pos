@@ -516,15 +516,32 @@ export default function App() {
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
   
-  // Payroll Creation Modal Form
+  // 1. Declare modal open state
   const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
-  // Auto-fill payroll inputs whenever the selected staff changes
+
+  // 2. Declare form state FIRST (Before any effect tries to read it)
+  const [payrollInputForm, setPayrollInputForm] = useState({
+    staffId: '',
+    period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    epfEtfEnabled: true,
+    basicSalary: 35000,
+    budgetaryAllowance: 2500,
+    otherAllowances: 0,
+    serviceChargeBonus: 0,
+    incentiveBonus: 0,
+    overtimeHours: 0,
+    overtimeRate: 250,
+    otherDeductions: 0,
+    notes: ''
+  });
+
+  // 3. Auto-fill payroll inputs AFTER payrollInputForm is defined
   useEffect(() => {
     if (!payrollInputForm.staffId) return;
     const staff = staffList.find(s => s.id === payrollInputForm.staffId);
     if (!staff) return;
 
-    // Only update if we are issuing a new payslip (do not overwrite when editing an existing one)
+    // Only update if issuing a new payslip (do not overwrite when editing)
     if (!editingPayrollId) {
       setPayrollInputForm(prev => ({
         ...prev,
@@ -537,21 +554,7 @@ export default function App() {
       }));
     }
   }, [payrollInputForm.staffId, staffList, editingPayrollId]);
-  
-  const [payrollInputForm, setPayrollInputForm] = useState({
-    staffId: '',
-    period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
-    epfEtfEnabled: true, // <-- ADD THIS: Toggle EPF/ETF applicability
-    basicSalary: 35000,
-    budgetaryAllowance: 2500,
-    otherAllowances: 0,
-    serviceChargeBonus: 0,
-    incentiveBonus: 0,
-    overtimeHours: 0,
-    overtimeRate: 250,
-    otherDeductions: 0,
-    notes: ''
-  });
+
   // Sequential Number Helpers
   const getNextOrderNumber = () => {
     let nextNum = seqCounters.order || 1;
@@ -6409,17 +6412,18 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   type="button"
                   onClick={() => {
                     const firstStaff = staffList[0];
+                    setEditingPayrollId(null);
                     setPayrollInputForm({
                       staffId: firstStaff ? firstStaff.id : '',
                       period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
-                      epfEtfEnabled: true,
-                      basicSalary: 35000,
-                      budgetaryAllowance: 2500,
-                      otherAllowances: 0,
-                      serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
-                      incentiveBonus: 0,
+                      epfEtfEnabled: firstStaff ? firstStaff.epfEtfEnabled !== false : true,
+                      basicSalary: firstStaff?.basicSalary ?? 35000,
+                      budgetaryAllowance: firstStaff?.budgetaryAllowance ?? 2500,
+                      otherAllowances: firstStaff?.otherAllowances ?? 0,
+                      serviceChargeBonus: Math.round((salesMetrics?.serviceCharge || 0) / Math.max(1, staffList.length)),
+                      incentiveBonus: firstStaff?.fixedBonus ?? 0,
                       overtimeHours: 0,
-                      overtimeRate: 250,
+                      overtimeRate: firstStaff?.overtimeRate ?? 250,
                       otherDeductions: 0,
                       notes: ''
                     });
