@@ -1412,8 +1412,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       floorTables,
       activeOrders,
       transactions,
+      vendorBills, // <-- ADD THIS
       auditLogs,
-      cancelledTickets,
       currentShift,
       shiftHistory
     };
@@ -1461,6 +1461,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (parsed.cancelledTickets) setCancelledTickets(parsed.cancelledTickets);
         if (parsed.currentShift) setCurrentShift(parsed.currentShift);
         if (parsed.shiftHistory) setShiftHistory(parsed.shiftHistory);
+        if (parsed.vendorBills) setVendorBills(parsed.vendorBills);
 
         recordAuditLog('BACKUP_RESTORED', file.name, `System restored from backup file by ${currentUser.name}`);
         setSettingsNotice({
@@ -6364,13 +6365,17 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         netSalesRevenue,
                         grossSalesRevenue,
                         totalDiscountsGiven,
+                        totalBOMCostOfGoodsSold,
+                        grossProfit,
+                        grossMarginPercent: `${grossMarginPercent}%`,
                         totalOperationalCashOut,
                         totalSafeDropBanking,
+                        totalVendorBillsPaid,
                         totalPayrollDisbursed,
                         totalEmployerEpfEtf,
                         totalOperatingExpenses,
                         netProfit,
-                        profitMargin: `${profitMargin}%`,
+                        profitMargin: `${netProfitMargin}%`,
                         expenseCategories
                       }
                     };
@@ -6404,7 +6409,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             </div>
 
-           {/* Calculations Engine (Mapped to transactions, expenses, vendorBills & payroll) */}
+           {/* Calculations Engine (Mapped to transactions, BOM COGS, expenses, vendorBills & payroll) */}
             {(() => {
               const todayStr = getLocalDateStr();
               const currentMonthStr = todayStr.slice(0, 7); // 'YYYY-MM'
@@ -6454,7 +6459,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
               // 4. Filter External Vendor Bills (Non-Drawer Invoices: Bank transfer, Cheque, Card)
               const filteredVendorBills = externalBillsData.filter(b => {
-                if (!b || b.paymentStatus !== 'PAID') return false; // Only booked paid invoices hit P&L
+                if (!b || b.paymentStatus !== 'PAID') return false;
                 const bDate = extractDateStr(b.billDate || b.date) || String(b.billDate || '');
                 if (accountingPeriod === 'TODAY') return bDate.startsWith(todayStr);
                 if (accountingPeriod === 'THIS_MONTH') return bDate.startsWith(currentMonthStr);
@@ -6477,17 +6482,43 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const calculatedNet = grossSalesRevenue - totalDiscountsGiven;
               const netSalesRevenue = calculatedNet > 0 ? calculatedNet : filteredSales.reduce((acc, inv) => acc + (Number(inv.total) || 0), 0);
 
-              // --- EXPENSE CATEGORIZATION (Combines Drawer Outflows + External Vendor Invoices) ---
-              const expenseCategories = {};
+              // --- COST OF GOODS SOLD (BOM INGREDIENT COST TRACKING) ---
+              let totalBOMCostOfGoodsSold = 0;
+              filteredSales.forEach(inv => {
+                // If invoice already has cogs computed at settlement time, use it
+                if (Number(inv.cogs) > 0) {
+                  totalBOMCostOfGoodsSold += Number(inv.cogs);
+                } else if (Array.isArray(inv.items)) {
+                  // Fallback: Recompute line-by-line from recipes (counts 0 if not configured)
+                  inv.items.forEach(item => {
+                    const dish = menuItems.find(m => m.id === item.id || m.name === item.name);
+                    const qty = Number(item.qty) || 1;
+                    if (dish && Array.isArray(dish.recipe) && dish.recipe.length > 0) {
+                      let itemUnitCogs = 0;
+                      dish.recipe.forEach(r => {
+                        const ing = inventoryMap[r.ingredientId];
+                        if (ing && Number(ing.cost) > 0) {
+                          itemUnitCogs += (Number(ing.cost) * (Number(r.amount) || 0));
+                        }
+                      });
+                      totalBOMCostOfGoodsSold += (itemUnitCogs * qty);
+                    }
+                  });
+                }
+              });
 
-              // A. Drawer operational expenses
+              // Gross Profit after raw food/beverage ingredient cost
+              const grossProfit = netSalesRevenue - totalBOMCostOfGoodsSold;
+              const grossMarginPercent = netSalesRevenue > 0 ? ((grossProfit / netSalesRevenue) * 100).toFixed(1) : 0;
+
+              // --- EXPENSE CATEGORIZATION ---
+              const expenseCategories = {};
               operationalExpenses.forEach(exp => {
                 const cat = (exp.category || exp.reason || 'General Purchases').trim();
                 const amt = Number(exp.amount) || 0;
                 expenseCategories[cat] = (expenseCategories[cat] || 0) + amt;
               });
 
-              // B. External vendor invoices & bills
               filteredVendorBills.forEach(b => {
                 const cat = (b.category || 'Vendor Invoices').trim();
                 const amt = Number(b.amount) || 0;
@@ -6504,12 +6535,11 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const totalPayrollDisbursed = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.netSalary) || Number(p.netPay) || 0), 0);
               const totalEmployerEpfEtf = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.epfEmployer) || 0) + (Number(p.breakdown?.etfEmployer) || 0), 0);
 
-              // --- TRUE OPEX & PROFIT (Safe Drops Excluded) ---
-              // Total OPEX = Drawer Purchases + External Bills + Staff Wages + Employer EPF/ETF
+              // --- TOTAL OPEX (Operating Expenses) ---
               const totalOperatingExpenses = totalOperationalCashOut + totalVendorBillsPaid + totalPayrollDisbursed + totalEmployerEpfEtf;
 
-              // Net Operating Profit
-              const netProfit = netSalesRevenue - totalOperatingExpenses;
+              // --- NET OPERATING PROFIT (Net Revenue - BOM COGS - OPEX) ---
+              const netProfit = grossProfit - totalOperatingExpenses;
               const profitMargin = netSalesRevenue > 0 ? ((netProfit / netSalesRevenue) * 100).toFixed(1) : 0;
 
               // --- TOP 10 ITEMS SOLD ---
@@ -6528,11 +6558,11 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               });
               const topSoldItems = Object.values(itemSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
               const maxItemQty = topSoldItems.length > 0 ? Math.max(...topSoldItems.map(i => i.qty)) : 1;
-              
+
               return (
                 <div className="space-y-6">
                   {/* Top Key Performance Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
                     {/* Gross Revenue */}
                     <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
                       <div className="flex items-center justify-between">
@@ -6541,27 +6571,43 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           <TrendingUp className="h-4 w-4" />
                         </span>
                       </div>
-                      <p className="text-2xl font-black font-mono text-slate-900 mt-2">
+                      <p className="text-xl font-black font-mono text-slate-900 mt-1">
                         {settings.currency} {netSalesRevenue.toFixed(2)}
                       </p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Gross {settings.currency} {grossSalesRevenue.toFixed(2)} - Disc {settings.currency} {totalDiscountsGiven.toFixed(2)}
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Gross {settings.currency} {grossSalesRevenue.toFixed(0)} - Disc {settings.currency} {totalDiscountsGiven.toFixed(0)}
+                      </p>
+                    </div>
+
+                    {/* BOM Cost of Goods Sold (COGS) */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Cost of Goods (COGS)</span>
+                        <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg">
+                          <BookOpen className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-xl font-black font-mono text-amber-700 mt-1">
+                        {settings.currency} {totalBOMCostOfGoodsSold.toFixed(2)}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        BOM Recipes • Gross Margin {grossMarginPercent}%
                       </p>
                     </div>
 
                     {/* Operational Cash Out (Excludes Safe Drops) */}
                     <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-slate-400">Operating Expenses</span>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Total OPEX</span>
                         <span className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
                           <TrendingDown className="h-4 w-4" />
                         </span>
                       </div>
-                      <p className="text-2xl font-black font-mono text-rose-600 mt-2">
-                        {settings.currency} {totalOperationalCashOut.toFixed(2)}
+                      <p className="text-xl font-black font-mono text-rose-600 mt-1">
+                        {settings.currency} {totalOperatingExpenses.toFixed(2)}
                       </p>
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        Excludes {settings.currency} {totalSafeDropBanking.toFixed(2)} in safe drops
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Cashouts + Bills + Wages (Safe Drops Excluded)
                       </p>
                     </div>
 
@@ -6573,10 +6619,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           <Briefcase className="h-4 w-4" />
                         </span>
                       </div>
-                      <p className="text-2xl font-black font-mono text-indigo-600 mt-2">
+                      <p className="text-xl font-black font-mono text-indigo-600 mt-1">
                         {settings.currency} {(totalPayrollDisbursed + totalEmployerEpfEtf).toFixed(2)}
                       </p>
-                      <p className="text-[11px] text-slate-400 mt-1">
+                      <p className="text-[10px] text-slate-400 mt-0.5">
                         Take-home + {settings.currency} {totalEmployerEpfEtf.toFixed(2)} EPF/ETF
                       </p>
                     </div>
@@ -6589,14 +6635,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300">
                           Net Operating Profit
                         </span>
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black font-mono bg-white/10">
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black font-mono bg-white/10">
                           {profitMargin}% Margin
                         </span>
                       </div>
-                      <p className="text-2xl font-black font-mono mt-2">
+                      <p className="text-xl font-black font-mono mt-1">
                         {settings.currency} {netProfit.toFixed(2)}
                       </p>
-                      <p className="text-[11px] opacity-80 mt-1">
+                      <p className="text-[10px] opacity-80 mt-0.5">
                         {netProfit >= 0 ? 'Profitable operation' : 'Operating at a loss'}
                       </p>
                     </div>
@@ -6621,7 +6667,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           {/* REVENUE SECTION */}
                           <div className="pt-2">
                             <span className="text-[10px] font-black uppercase text-emerald-600 block mb-1">
-                              1. Operating Revenue
+                              1. Operating Revenue &amp; Gross Margin
                             </span>
                             <div className="flex justify-between py-1 text-slate-700">
                               <span>Gross Menu &amp; Bar Invoiced Sales</span>
@@ -6631,9 +6677,17 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                               <span>Less: Promotional Discounts &amp; Vouchers</span>
                               <span className="font-mono font-bold">-{settings.currency} {totalDiscountsGiven.toFixed(2)}</span>
                             </div>
-                            <div className="flex justify-between py-1.5 font-black text-slate-900 bg-slate-50 px-2 rounded-lg mt-1">
+                            <div className="flex justify-between py-1 text-slate-900 font-bold bg-slate-50 px-2 rounded-lg">
                               <span>Net Sales Revenue</span>
-                              <span className="font-mono text-emerald-700">{settings.currency} {netSalesRevenue.toFixed(2)}</span>
+                              <span className="font-mono">{settings.currency} {netSalesRevenue.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-amber-700 px-2">
+                              <span>Less: Cost of Goods Sold (BOM Recipe Ingredients)</span>
+                              <span className="font-mono font-bold">-{settings.currency} {totalBOMCostOfGoodsSold.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1.5 font-black text-slate-950 bg-emerald-50 px-2 rounded-lg mt-1 border border-emerald-200">
+                              <span>Gross Operating Profit</span>
+                              <span className="font-mono text-emerald-800">{settings.currency} {grossProfit.toFixed(2)} ({grossMarginPercent}%)</span>
                             </div>
                           </div>
 
@@ -6643,8 +6697,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                               2. Operating Expenditures (OPEX)
                             </span>
                             <div className="flex justify-between py-1 text-slate-700">
-                              <span>Cash Out Vendor Purchases &amp; Supplies</span>
+                              <span>Cash Out Purchases &amp; Petty Cash</span>
                               <span className="font-mono">{settings.currency} {totalOperationalCashOut.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-slate-700">
+                              <span>External Vendor Bills &amp; Banked Invoices</span>
+                              <span className="font-mono">{settings.currency} {totalVendorBillsPaid.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between py-1 text-slate-700">
                               <span>Staff Net Salaries &amp; Wage Disbursed</span>
@@ -6657,14 +6715,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             <div className="flex justify-between py-1.5 font-black text-rose-700 bg-rose-50 px-2 rounded-lg mt-1">
                               <span>Total Operating Expenses</span>
                               <span className="font-mono">-{settings.currency} {totalOperatingExpenses.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between py-1 text-slate-700">
-                              <span>Cash Out Purchases &amp; Petty Cash</span>
-                              <span className="font-mono">{settings.currency} {totalOperationalCashOut.toFixed(2)}</span>
-                            </div>
-                            <div className="flex justify-between py-1 text-slate-700">
-                              <span>External Vendor Bills &amp; Banked Invoices</span>
-                              <span className="font-mono">{settings.currency} {totalVendorBillsPaid.toFixed(2)}</span>
                             </div>
                           </div>
 
