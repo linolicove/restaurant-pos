@@ -1,3 +1,5 @@
+
+import * as XLSX from 'xlsx';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import {
   Monitor,
@@ -232,6 +234,167 @@ const getLocalDateStr = (d = new Date()) => {
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+// Clean text and extract numeric value and optional unit
+const parseQtyAndUnit = (rawStr, defaultUnit = 'g') => {
+  if (typeof rawStr === 'number') return { qty: rawStr, unit: defaultUnit };
+  if (!rawStr) return { qty: 0, unit: defaultUnit };
+
+  const str = String(rawStr).trim();
+  const match = str.match(/([0-9]+(?:\.[0-9]+)?)\s*([a-zA-Z]+)?/);
+  if (!match) return { qty: parseFloat(str) || 0, unit: defaultUnit };
+
+  const qty = parseFloat(match[1]) || 0;
+  let unit = (match[2] || defaultUnit).toLowerCase();
+  
+  // Normalize units
+  if (['gram', 'grams', 'gm', 'g'].includes(unit)) unit = 'g';
+  else if (['kilogram', 'kilograms', 'kg', 'kgs'].includes(unit)) unit = 'kg';
+  else if (['milliliter', 'milliliters', 'ml'].includes(unit)) unit = 'ml';
+  else if (['liter', 'liters', 'l', 'ltr'].includes(unit)) unit = 'l';
+  else if (['piece', 'pieces', 'pcs', 'pc', 'nos'].includes(unit)) unit = 'pcs';
+
+  return { qty, unit };
+};
+
+const cleanCostValue = (rawCost) => {
+  if (typeof rawCost === 'number') return rawCost;
+  if (!rawCost) return 0;
+  const cleaned = String(rawCost).replace(/[^0-9.]/g, '');
+  return parseFloat(cleaned) || 0;
+};
+
+// 1. EXCEL (.xlsx, .xls, .csv) INVENTORY PARSER
+const extractInventoryFromExcel = async (file) => {
+  const data = await file.arrayBuffer();
+  const workbook = XLSX.read(data, { type: 'array' });
+  const firstSheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+  if (rows.length < 2) return [];
+
+  // Identify column headers
+  let headerIndex = -1;
+  let colMap = { name: 0, category: 1, stock: 2, threshold: 3, cost: 4, unit: -1 };
+
+  for (let i = 0; i < Math.min(10, rows.length); i++) {
+    const row = rows[i].map(c => String(c).toLowerCase().trim());
+    const nIdx = row.findIndex(c => c.includes('ingredient') || c.includes('item') || c.includes('name') || c.includes('material'));
+    if (nIdx !== -1) {
+      headerIndex = i;
+      colMap.name = nIdx;
+      colMap.category = row.findIndex(c => c.includes('cat'));
+      colMap.stock = row.findIndex(c => c.includes('stock') || c.includes('remain') || c.includes('qty'));
+      colMap.threshold = row.findIndex(c => c.includes('thresh') || c.includes('reorder') || c.includes('min') || c.includes('alert'));
+      colMap.cost = row.findIndex(c => c.includes('cost') || c.includes('price') || c.includes('rate'));
+      colMap.unit = row.findIndex(c => c.includes('unit'));
+      break;
+    }
+  }
+
+  const startIndex = headerIndex !== -1 ? headerIndex + 1 : 1;
+  const parsedItems = [];
+
+  for (let i = startIndex; i < rows.length; i++) {
+    const r = rows[i];
+    const name = String(r[colMap.name !== -1 ? colMap.name : 0] || '').trim();
+    if (!name || name.toLowerCase().includes('total') || name.toLowerCase().includes('raw ingredient')) continue;
+
+    const category = colMap.category !== -1 && r[colMap.category] ? String(r[colMap.category]).trim() : 'Dry Goods';
+    const explicitUnit = colMap.unit !== -1 && r[colMap.unit] ? String(r[colMap.unit]).trim() : '';
+
+    const rawStock = r[colMap.stock !== -1 ? colMap.stock : 2];
+    const rawThresh = r[colMap.threshold !== -1 ? colMap.threshold : 3];
+    const rawCost = r[colMap.cost !== -1 ? colMap.cost : 4];
+
+    const stockParsed = parseQtyAndUnit(rawStock, explicitUnit || 'g');
+    const threshParsed = parseQtyAndUnit(rawThresh, stockParsed.unit);
+    const unitCost = cleanCostValue(rawCost);
+
+    const safeId = `ing_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15)}_${Date.now().toString().slice(-4)}_${i}`;
+
+    parsedItems.push({
+      id: safeId,
+      name,
+      category: category || 'Dry Goods',
+      stock: stockParsed.qty,
+      unit: explicitUnit || stockParsed.unit || 'g',
+      cost: unitCost,
+      threshold: threshParsed.qty || 10
+    });
+  }
+
+  return parsedItems;
+};
+
+// 2. PDF INVENTORY PARSER (Matches the Visual Table Structure)
+const extractInventoryFromPDF = async (file) => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const tokens = [];
+
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    for (let i = 0; i < content.items.length; i++) {
+      const str = (content.items[i].str || '').trim();
+      if (!str || str === '|' || str.startsWith('Page ')) continue;
+      tokens.push(str);
+    }
+  }
+
+  const items = [];
+  const knownCategories = ['Dry Goods', 'Dairy & Eggs', 'Meat', 'Poultry', 'Seafood', 'Beverages', 'Bar Supplies', 'Bakery', 'Produce'];
+
+  for (let i = 0; i < tokens.length; i++) {
+    const token = tokens[i];
+    const catMatch = knownCategories.find(c => c.toLowerCase() === token.toLowerCase());
+
+    if (catMatch && i > 0) {
+      const name = tokens[i - 1].replace(/^[|•\-\s]+|[|•\-\s]+$/g, '').trim();
+      
+      // Look forward for Stock, Threshold and Cost
+      let stock = 0;
+      let unit = 'g';
+      let threshold = 10;
+      let cost = 0;
+
+      const fwd1 = tokens[i + 1] || '';
+      const fwd2 = tokens[i + 2] || '';
+      const fwd3 = tokens[i + 3] || '';
+      const fwd4 = tokens[i + 4] || '';
+
+      const sParsed = parseQtyAndUnit(fwd1);
+      if (sParsed.qty > 0) {
+        stock = sParsed.qty;
+        unit = sParsed.unit;
+      }
+
+      const tParsed = parseQtyAndUnit(fwd2, unit);
+      if (tParsed.qty > 0) {
+        threshold = tParsed.qty;
+      }
+
+      cost = cleanCostValue(fwd3) || cleanCostValue(fwd4);
+
+      if (name.length >= 2 && !name.toLowerCase().includes('raw ingredient')) {
+        const safeId = `ing_${name.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 15)}_${Date.now().toString().slice(-4)}_${items.length}`;
+        items.push({
+          id: safeId,
+          name,
+          category: catMatch,
+          stock,
+          unit,
+          cost,
+          threshold
+        });
+      }
+    }
+  }
+
+  return items;
 };
 
 const extractMenuFromPDF = async (file) => {
@@ -4197,7 +4360,84 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* 1. IMPORT EXCEL / PDF INVENTORY FILE */}
+                <label className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer transition-colors active:scale-95">
+                  <Upload className="h-3.5 w-3.5 text-[#ff5500]" />
+                  <span>Import Excel / PDF</span>
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls, .csv, application/pdf"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+
+                      try {
+                        let imported = [];
+                        const fileName = file.name.toLowerCase();
+
+                        if (fileName.endsWith('.pdf')) {
+                          if (typeof extractInventoryFromPDF === 'function') {
+                            imported = await extractInventoryFromPDF(file);
+                          } else {
+                            alert('PDF inventory extractor helper is missing. Please ensure extractInventoryFromPDF is defined.');
+                            return;
+                          }
+                        } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
+                          if (typeof extractInventoryFromExcel === 'function') {
+                            imported = await extractInventoryFromExcel(file);
+                          } else {
+                            alert('Excel inventory extractor helper is missing. Please ensure extractInventoryFromExcel is defined.');
+                            return;
+                          }
+                        }
+
+                        if (!imported || imported.length === 0) {
+                          alert(`Could not extract raw material records from "${file.name}". Please ensure the file has columns: Raw Ingredient, Category, Remaining Stock, Reorder Threshold, and Unit Cost.`);
+                          return;
+                        }
+
+                        // Merge or append imported records into live inventory
+                        setInventory(prev => {
+                          const existingList = Array.isArray(prev) ? [...prev] : [];
+                          imported.forEach(newIng => {
+                            const matchIdx = existingList.findIndex(
+                              ex => ex.name.toLowerCase().trim() === newIng.name.toLowerCase().trim()
+                            );
+                            if (matchIdx >= 0) {
+                              // Update stock and cost if already exists
+                              existingList[matchIdx] = {
+                                ...existingList[matchIdx],
+                                stock: Number((existingList[matchIdx].stock + newIng.stock).toFixed(2)),
+                                cost: newIng.cost > 0 ? newIng.cost : existingList[matchIdx].cost,
+                                threshold: newIng.threshold || existingList[matchIdx].threshold
+                              };
+                            } else {
+                              existingList.push(newIng);
+                            }
+                          });
+                          return existingList;
+                        });
+
+                        recordAuditLog(
+                          'INVENTORY_IMPORTED',
+                          file.name,
+                          `Imported/updated ${imported.length} raw material records from ${file.name}`
+                        );
+
+                        alert(`Successfully imported ${imported.length} raw inventory materials from ${file.name}! Inventory valuation has updated.`);
+                      } catch (err) {
+                        console.error('Inventory import failed:', err);
+                        alert(`Failed to import file: ${err.message}`);
+                      } finally {
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </label>
+
+                {/* 2. RECEIVE STOCK */}
                 <button
                   type="button"
                   onClick={() => {
@@ -4217,6 +4457,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <span>Receive Stock</span>
                 </button>
 
+                {/* 3. ADD MATERIAL */}
                 <button
                   type="button"
                   onClick={() => {
