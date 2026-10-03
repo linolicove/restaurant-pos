@@ -4731,7 +4731,45 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {/* 1. IMPORT EXCEL / PDF INVENTORY FILE */}
+                {/* 1. EXCEL EXPORT BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const list = Array.isArray(inventory) ? inventory : [];
+                    if (list.length === 0) {
+                      alert('No raw inventory records available to export.');
+                      return;
+                    }
+
+                    const exportRows = list.map(item => {
+                      const stockVal = Number(item.stock) || 0;
+                      const costVal = Number(item.cost) || 0;
+                      const threshVal = Number(item.threshold) || 0;
+                      const totalVal = Number((stockVal * costVal).toFixed(2));
+
+                      return {
+                        'Ingredient ID': item.id,
+                        'Raw Ingredient': item.name,
+                        'Category': item.category || 'General',
+                        'Remaining Stock': stockVal,
+                        'Unit': item.unit || 'g',
+                        'Reorder Threshold': threshVal,
+                        'Unit Cost': costVal,
+                        'Total Valuation': totalVal,
+                        'Stock Status': stockVal <= threshVal ? 'LOW STOCK' : 'OPTIMAL'
+                      };
+                    });
+
+                    exportReportToExcel('Stock_Inventory_Valuation', exportRows, 'Stock_Inventory_Valuation');
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                  title="Export raw inventory list and valuation to Excel (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Export Excel</span>
+                </button>
+
+                {/* 2. IMPORT EXCEL / PDF INVENTORY FILE */}
                 <label className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs shrink-0 cursor-pointer transition-colors active:scale-95">
                   <Upload className="h-3.5 w-3.5 text-[#ff5500]" />
                   <span>Import Excel / PDF</span>
@@ -4751,14 +4789,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           if (typeof extractInventoryFromPDF === 'function') {
                             imported = await extractInventoryFromPDF(file);
                           } else {
-                            alert('PDF inventory extractor helper is missing. Please ensure extractInventoryFromPDF is defined.');
+                            alert('PDF inventory extractor helper is missing.');
                             return;
                           }
                         } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
                           if (typeof extractInventoryFromExcel === 'function') {
                             imported = await extractInventoryFromExcel(file);
                           } else {
-                            alert('Excel inventory extractor helper is missing. Please ensure extractInventoryFromExcel is defined.');
+                            alert('Excel inventory extractor helper is missing.');
                             return;
                           }
                         }
@@ -4768,7 +4806,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           return;
                         }
 
-                        // Merge or append imported records into live inventory
                         setInventory(prev => {
                           const existingList = Array.isArray(prev) ? [...prev] : [];
                           imported.forEach(newIng => {
@@ -4776,7 +4813,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                               ex => ex.name.toLowerCase().trim() === newIng.name.toLowerCase().trim()
                             );
                             if (matchIdx >= 0) {
-                              // Update stock and cost if already exists
                               existingList[matchIdx] = {
                                 ...existingList[matchIdx],
                                 stock: Number((existingList[matchIdx].stock + newIng.stock).toFixed(2)),
@@ -4807,7 +4843,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   />
                 </label>
 
-                {/* 2. RECEIVE STOCK */}
+                {/* 3. RECEIVE STOCK */}
                 <button
                   type="button"
                   onClick={() => {
@@ -4821,13 +4857,13 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     });
                     setReceiveStockModalOpen(true);
                   }}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95 transition-all"
                 >
-                  <Package className="h-3.5 w-3.5" />
+                  <Package className="h-3.5 w-3.5 text-emerald-400" />
                   <span>Receive Stock</span>
                 </button>
 
-                {/* 3. ADD MATERIAL */}
+                {/* 4. ADD MATERIAL */}
                 <button
                   type="button"
                   onClick={() => {
