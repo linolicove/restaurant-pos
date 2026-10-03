@@ -492,6 +492,23 @@ export default function App() {
   const [posViewMode, setPosViewMode] = useState('grid'); // 'grid' | 'compact' | 'list'
   const [adminMenuCategory, setAdminMenuCategory] = useState('All');
 
+  // Generic Excel exporter using the already installed XLSX package
+const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') => {
+  if (!Array.isArray(dataRows) || dataRows.length === 0) {
+    alert('No data available to export for the selected date range.');
+    return;
+  }
+  try {
+    const worksheet = XLSX.utils.json_to_sheet(dataRows);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Report Data');
+    XLSX.writeFile(workbook, `${filenamePrefix}_${getLocalDateStr()}.xlsx`);
+  } catch (err) {
+    console.error('Excel Export Error:', err);
+    alert('Failed to generate Excel file: ' + err.message);
+  }
+};
+  
   // Persistent collections
   const [staffList, setStaffList] = usePersistentState('linoli_staff_list', INITIAL_STAFF);
   const [currentUser, setCurrentUser] = useState(INITIAL_STAFF[0]);
@@ -2452,10 +2469,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     );
   }
 
-  return (
-    <div className="flex h-screen w-full bg-[#0b0f19] text-zinc-100 font-sans select-none overflow-hidden antialiased">
-      
-      {/* Global CSS fix for select dropdowns & options to prevent white-on-white text */}
+  {/* Global CSS fix for select dropdowns & dual thermal / standard PDF print styles */}
       <style>{`
         select, option {
           color: #0f172a !important;
@@ -2467,26 +2481,76 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         }
 
         @media print {
-          @page {
-            margin: ${settings.receiptMargin || '2mm'};
-            size: auto;
-          }
+          /* 1. Global Print Cleanups */
           *, *::before, *::after {
             box-sizing: border-box !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
+
+          /* Hide UI Chrome (Navigation, Sidebar Drawer, Edge Tabs, Floating Buttons, Notifications) */
+          aside,
+          header,
+          button,
+          input,
+          .fixed,
+          nav,
+          [title="Touch to Open Menu"] {
+            display: none !important;
+          }
+
           body {
             background-color: #ffffff !important;
             color: #000000 !important;
             margin: 0 !important;
             padding: 0 !important;
           }
-          body * {
-            visibility: hidden !important;
+
+          /* 2. Standard Document & PDF Report Print Mode (A4 / Letter Clean Layout) */
+          body:not(:has(#thermal-print-area:not(:empty))) {
+            @page {
+              size: auto;
+              margin: 10mm;
+            }
           }
-          #thermal-print-area, #thermal-print-area * {
+
+          main {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+            overflow: visible !important;
+            display: block !important;
+            height: auto !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          /* Ensure report tables, borders, and rows remain clean and legible in PDF */
+          table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            color: #000000 !important;
+          }
+
+          th, td {
+            color: #000000 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            padding: 6px 8px !important;
+          }
+
+          thead {
+            display: table-header-group !important;
+          }
+
+          tr {
+            break-inside: avoid !important;
+            page-break-inside: avoid !important;
+          }
+
+          /* 3. Dedicated Thermal Receipt Spooler (Active when thermal-print-area is targeted) */
+          #thermal-print-area:not(:empty) {
             visibility: visible !important;
-          }
-          #thermal-print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -2501,18 +2565,25 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             font-size: ${settings.receiptFontSize || '11px'} !important;
             font-family: ${settings.receiptFontFamily || 'monospace'} !important;
             line-height: 1.25 !important;
+            display: block !important;
           }
+
+          #thermal-print-area * {
+            visibility: visible !important;
+          }
+
           #thermal-print-area .border-dashed,
           #thermal-print-area .border-t,
           #thermal-print-area .border-b {
             border-color: #000000 !important;
           }
+
           #thermal-print-area div {
             break-inside: avoid;
           }
         }
       `}</style>
-
+      
       {/* Floating edge tab to open menu on touch */}
       <button
         onClick={() => setSidebarOpen(true)}
@@ -3568,8 +3639,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               ))}
             </div>
 
-            {/* Date Filters Header */}
-            <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-xs">
+            {/* Date Filters & Export Action Bar */}
+            <div className="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 shadow-xs">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-slate-700 flex items-center gap-1">
                   <Calendar className="h-3.5 w-3.5 text-[#ff5500]" /> Date Filter:
@@ -3589,25 +3660,175 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                {[
-                  { label: 'Today', start: getLocalDateStr(), end: getLocalDateStr() },
-                  { label: 'Yesterday', start: getLocalDateStr(new Date(Date.now() - 86400000)), end: getLocalDateStr(new Date(Date.now() - 86400000)) },
-                  { label: 'Last 7 Days', start: getLocalDateStr(new Date(Date.now() - 7 * 86400000)), end: getLocalDateStr() },
-                  { label: 'All Time', start: '', end: '' }
-                ].map(preset => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => {
-                      setReportStartDate(preset.start);
-                      setReportEndDate(preset.end);
-                    }}
-                    className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg whitespace-nowrap cursor-pointer"
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+              {/* Presets & Export Actions */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 overflow-x-auto">
+                  {[
+                    { label: 'Today', start: getLocalDateStr(), end: getLocalDateStr() },
+                    { label: 'Yesterday', start: getLocalDateStr(new Date(Date.now() - 86400000)), end: getLocalDateStr(new Date(Date.now() - 86400000)) },
+                    { label: 'Last 7 Days', start: getLocalDateStr(new Date(Date.now() - 7 * 86400000)), end: getLocalDateStr() },
+                    { label: 'All Time', start: '', end: '' }
+                  ].map(preset => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setReportStartDate(preset.start);
+                        setReportEndDate(preset.end);
+                      }}
+                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg whitespace-nowrap cursor-pointer transition-colors"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+                {/* 1. EXCEL EXPORT BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    let exportRows = [];
+                    const prefix = `${reportSubTab.toLowerCase().replace(/\s+/g, '_')}`;
+
+                    if (reportSubTab === 'Daily Overview' || reportSubTab === 'All Items Sales') {
+                      exportRows = salesMetrics.topItems.map(item => ({
+                        'Menu Item': item.name,
+                        'Area': item.department,
+                        'Category': item.category,
+                        'Portions Sold': item.sold,
+                        'Unit Price': item.unitPrice,
+                        'Total Revenue': item.revenue
+                      }));
+                    } else if (reportSubTab === 'Sales Detail') {
+                      exportRows = filteredTransactions.map(t => ({
+                        'Invoice #': t.invoiceNo,
+                        'Date': t.date,
+                        'Table': t.table,
+                        'Cashier': t.cashier,
+                        'Method': t.paymentMethod,
+                        'Subtotal': t.subtotal,
+                        'Service Charge': t.serviceCharge,
+                        'Tax': t.tax,
+                        'Discount': t.discount || 0,
+                        'Grand Total': t.total
+                      }));
+                    } else if (reportSubTab === 'Cash Out Report') {
+                      const allRecords = Array.isArray(expenses) ? expenses : [];
+                      exportRows = allRecords
+                        .filter(exp => {
+                          const expDate = exp.date || extractDateStr(exp.createdAt);
+                          if (!expDate) return true;
+                          if (reportStartDate && expDate < reportStartDate) return false;
+                          if (reportEndDate && expDate > reportEndDate) return false;
+                          return true;
+                        })
+                        .map(e => ({
+                          'Voucher Ref': e.id,
+                          'Date': e.date || getLocalDateStr(),
+                          'Shift ID': e.shiftId || 'N/A',
+                          'Category': e.category,
+                          'Recipient': e.recipient || 'N/A',
+                          'Description': e.reason,
+                          'Amount': parseFloat(e.amount) || 0,
+                          'Status': e.status || 'APPROVED',
+                          'Approved By': e.approvedBy || 'N/A'
+                        }));
+                    } else if (reportSubTab === 'KOT Report') {
+                      exportRows = salesMetrics.topItems
+                        .filter(i => i.department === 'Kitchen')
+                        .map(i => ({
+                          'Kitchen Dish': i.name,
+                          'Category': i.category,
+                          'Portions Prepared': i.sold,
+                          'Total Revenue': i.revenue
+                        }));
+                    } else if (reportSubTab === 'BOT Report') {
+                      exportRows = salesMetrics.topItems
+                        .filter(i => i.department === 'Bar')
+                        .map(i => ({
+                          'Beverage': i.name,
+                          'Category': i.category,
+                          'Glasses / Units': i.sold,
+                          'Total Revenue': i.revenue
+                        }));
+                    } else if (reportSubTab === 'Stock Usage') {
+                      exportRows = inventory.map(ing => {
+                        const used = salesMetrics.ingredientUsageMap[ing.id]?.totalConsumed || 0;
+                        return {
+                          'Raw Material': ing.name,
+                          'Category': ing.category,
+                          'Depleted Qty': used,
+                          'Unit': ing.unit,
+                          'Remaining Stock': ing.stock,
+                          'Unit Cost': ing.cost,
+                          'Total Depletion Cost': Number((used * ing.cost).toFixed(2))
+                        };
+                      });
+                    } else if (reportSubTab === 'Stock Movement Ledger') {
+                      exportRows = (stockLogs || [])
+                        .filter(log => {
+                          const lDate = log.date || extractDateStr(log.timestamp);
+                          if (!lDate) return true;
+                          if (reportStartDate && lDate < reportStartDate) return false;
+                          if (reportEndDate && lDate > reportEndDate) return false;
+                          return true;
+                        })
+                        .map(l => ({
+                          'Date & Time': l.timestamp,
+                          'Material': l.ingredientName,
+                          'Action Type': l.type,
+                          'Previous Stock': l.oldStock,
+                          'Change': l.diffQty,
+                          'New Level': l.newStock,
+                          'Unit': l.unit,
+                          'Cost Impact': l.totalCostImpact,
+                          'Reason': l.reason,
+                          'Staff': l.staff
+                        }));
+                    } else if (reportSubTab === 'Audit Trail') {
+                      exportRows = auditLogs.map(l => ({
+                        'Time': l.timestamp,
+                        'Action': l.action,
+                        'Authorized User': l.staff,
+                        'Role': l.role,
+                        'Target Ref': l.targetRef,
+                        'Details': l.details
+                      }));
+                    } else {
+                      // Fallback: Sales Summary export
+                      exportRows = [
+                        { 'Metric': 'Total Settled Invoices', 'Value': salesMetrics.paidBillsCount },
+                        { 'Metric': 'Gross Revenue', 'Value': salesMetrics.grossRevenue },
+                        { 'Metric': 'Net Food & Beverage Subtotal', 'Value': salesMetrics.itemSubtotal },
+                        { 'Metric': 'Service Charge Pool', 'Value': salesMetrics.serviceCharge },
+                        { 'Metric': 'Statutory Taxes / VAT', 'Value': salesMetrics.taxes },
+                        { 'Metric': 'Discounts Given', 'Value': salesMetrics.discounts }
+                      ];
+                    }
+
+                    exportReportToExcel(reportSubTab, exportRows, prefix);
+                  }}
+                  className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors active:scale-95"
+                  title="Export this report to Excel (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Excel</span>
+                </button>
+
+                {/* 2. PDF / PRINT EXPORT BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="px-3 py-1 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-colors active:scale-95"
+                  title="Print or Save this report as PDF"
+                >
+                  <Printer className="h-3.5 w-3.5 text-orange-400" />
+                  <span>PDF / Print</span>
+                </button>
               </div>
             </div>
 
