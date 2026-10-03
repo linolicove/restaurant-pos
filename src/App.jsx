@@ -2470,6 +2470,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
   }
 
   {/* Global CSS fix for select dropdowns & dual thermal / standard PDF print styles */}
+  return (
+    <div className="flex h-screen w-full bg-[#0b0f19] text-zinc-100 font-sans select-none overflow-hidden antialiased">
+      {/* Global CSS fix for select dropdowns & dual thermal / standard PDF print styles */}
       <style>{`
         select, option {
           color: #0f172a !important;
@@ -2583,7 +2586,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           }
         }
       `}</style>
-      
+
       {/* Floating edge tab to open menu on touch */}
       <button
         onClick={() => setSidebarOpen(true)}
@@ -11964,7 +11967,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           </div>
         </div>
       )}
-
     </div>
   );
 }
+// End of component
