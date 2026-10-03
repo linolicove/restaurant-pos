@@ -518,6 +518,26 @@ export default function App() {
   
   // Payroll Creation Modal Form
   const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
+  // Auto-fill payroll inputs whenever the selected staff changes
+  useEffect(() => {
+    if (!payrollInputForm.staffId) return;
+    const staff = staffList.find(s => s.id === payrollInputForm.staffId);
+    if (!staff) return;
+
+    // Only update if we are issuing a new payslip (do not overwrite when editing an existing one)
+    if (!editingPayrollId) {
+      setPayrollInputForm(prev => ({
+        ...prev,
+        basicSalary: staff.basicSalary ?? 35000,
+        budgetaryAllowance: staff.budgetaryAllowance ?? 2500,
+        otherAllowances: staff.otherAllowances ?? 0,
+        incentiveBonus: staff.fixedBonus ?? 0,
+        overtimeRate: staff.overtimeRate ?? 250,
+        epfEtfEnabled: staff.epfEtfEnabled !== false
+      }));
+    }
+  }, [payrollInputForm.staffId, staffList, editingPayrollId]);
+  
   const [payrollInputForm, setPayrollInputForm] = useState({
     staffId: '',
     period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
@@ -688,7 +708,19 @@ export default function App() {
   const [targetStaffForSwitch, setTargetStaffForSwitch] = useState(null);
   const [pinError, setPinError] = useState('');
   const [addStaffModalOpen, setAddStaffModalOpen] = useState(false);
-  const [newStaffForm, setNewStaffForm] = useState({ name: '', role: 'Cashier', pin: '', email: '' });
+  const [editingStaffId, setEditingStaffId] = useState(null);
+  const [newStaffForm, setNewStaffForm] = useState({
+    name: '',
+    role: 'Cashier',
+    pin: '',
+    email: '',
+    basicSalary: 35000,
+    budgetaryAllowance: 2500,
+    otherAllowances: 0,
+    fixedBonus: 0,
+    overtimeRate: 250,
+    epfEtfEnabled: true
+  });
   const [staffFormError, setStaffFormError] = useState('');
   const [addTableModalOpen, setAddTableModalOpen] = useState(false);
   const [newTableForm, setNewTableForm] = useState({ name: '', zone: 'Indoor Main Hall', capacity: 4 });
@@ -1122,7 +1154,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       setStaffFormError('PIN must be exactly 4 numeric digits.');
       return;
     }
-    if (staffList.some(s => s.pin === cleanPin)) {
+    if (staffList.some(s => s.pin === cleanPin && s.id !== editingStaffId)) {
       setStaffFormError('This 4-digit PIN is already in use by another employee.');
       return;
     }
@@ -1132,19 +1164,46 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
       : newStaffForm.name.trim().substring(0, 2).toUpperCase();
 
-    const newStaff = {
-      id: `usr_${Date.now().toString().slice(-6)}`,
+    const staffPayload = {
       name: newStaffForm.name.trim(),
       role: newStaffForm.role,
       pin: cleanPin,
       avatar: initials || 'ST',
-      email: newStaffForm.email.trim() || `${newStaffForm.name.trim().toLowerCase().replace(/\s+/g, '')}@linolicove.me`
+      email: newStaffForm.email.trim() || `${newStaffForm.name.trim().toLowerCase().replace(/\s+/g, '')}@linolicove.me`,
+      basicSalary: Number(newStaffForm.basicSalary) || 0,
+      budgetaryAllowance: Number(newStaffForm.budgetaryAllowance) || 0,
+      otherAllowances: Number(newStaffForm.otherAllowances) || 0,
+      fixedBonus: Number(newStaffForm.fixedBonus) || 0,
+      overtimeRate: Number(newStaffForm.overtimeRate) || 0,
+      epfEtfEnabled: newStaffForm.epfEtfEnabled !== false
     };
 
-    setStaffList(prev => [...prev, newStaff]);
-    recordAuditLog('STAFF_CREATED', newStaff.id, `Created staff member ${newStaff.name} with role ${newStaff.role} (PIN: ${newStaff.pin})`);
+    if (editingStaffId) {
+      setStaffList(prev => prev.map(s => s.id === editingStaffId ? { ...s, ...staffPayload, id: editingStaffId } : s));
+      recordAuditLog('STAFF_UPDATED', editingStaffId, `Updated salary and credentials for ${staffPayload.name} (${staffPayload.role})`);
+    } else {
+      const newStaff = {
+        id: `usr_${Date.now().toString().slice(-6)}`,
+        ...staffPayload
+      };
+      setStaffList(prev => [...prev, newStaff]);
+      recordAuditLog('STAFF_CREATED', newStaff.id, `Created staff member ${newStaff.name} with Base Salary ${settings.currency} ${staffPayload.basicSalary}`);
+    }
+
     setAddStaffModalOpen(false);
-    setNewStaffForm({ name: '', role: 'Cashier', pin: '', email: '' });
+    setEditingStaffId(null);
+    setNewStaffForm({
+      name: '',
+      role: 'Cashier',
+      pin: '',
+      email: '',
+      basicSalary: 35000,
+      budgetaryAllowance: 2500,
+      otherAllowances: 0,
+      fixedBonus: 0,
+      overtimeRate: 250,
+      epfEtfEnabled: true
+    });
     setStaffFormError('');
   };
 
@@ -5637,13 +5696,30 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-black text-slate-900">Staff Management &amp; Roles</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Configure employee credentials and 4-digit security PINs.</p>
+                <h2 className="text-xl font-black text-slate-900">Staff Management, Roles &amp; Wages</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Configure employee credentials, security PINs, and base salary structures linked directly to payroll.
+                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setAddStaffModalOpen(true)}
-                className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer"
+                onClick={() => {
+                  setEditingStaffId(null);
+                  setNewStaffForm({
+                    name: '',
+                    role: 'Cashier',
+                    pin: '',
+                    email: '',
+                    basicSalary: 35000,
+                    budgetaryAllowance: 2500,
+                    otherAllowances: 0,
+                    fixedBonus: 0,
+                    overtimeRate: 250,
+                    epfEtfEnabled: true
+                  });
+                  setAddStaffModalOpen(true);
+                }}
+                className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all"
               >
                 <Plus className="h-4 w-4" /> Add Employee
               </button>
@@ -5655,13 +5731,16 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <tr>
                     <th className="py-3 px-4">Staff Member</th>
                     <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4 text-right">Basic Salary</th>
+                    <th className="py-3 px-4 text-right">BRA / Allowances</th>
+                    <th className="py-3 px-4 text-center">EPF / ETF</th>
                     <th className="py-3 px-4">Security PIN</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {staffList.map(member => (
-                    <tr key={member.id} className="hover:bg-slate-50">
+                    <tr key={member.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2.5">
                           <div className="h-8 w-8 rounded-full bg-slate-900 text-white font-black text-xs flex items-center justify-center">
@@ -5673,26 +5752,106 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           </div>
                         </div>
                       </td>
+
                       <td className="py-3 px-4">
                         <span className="px-2 py-0.5 bg-orange-100 text-[#ff5500] rounded font-bold text-[10px]">
                           {member.role}
                         </span>
                       </td>
-                      <td className="py-3 px-4 font-mono text-slate-700">•••• ({member.pin})</td>
+
+                      <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                        {settings.currency} {(member.basicSalary ?? 35000).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+
+                      <td className="py-3 px-4 text-right font-mono text-slate-600">
+                        +{settings.currency} {((member.budgetaryAllowance ?? 2500) + (member.otherAllowances ?? 0)).toFixed(2)}
+                      </td>
+
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          member.epfEtfEnabled !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {member.epfEtfEnabled !== false ? 'Enrolled' : 'Exempt'}
+                        </span>
+                      </td>
+
+                      <td className="py-3 px-4 font-mono text-slate-500">•••• ({member.pin})</td>
+
                       <td className="py-3 px-4 text-right">
-                        {currentUser.role === 'Administrator' && member.id !== currentUser.id && (
+                        <div className="flex items-center justify-end gap-1.5">
+                          {/* DIRECT RUN PAYROLL BUTTON */}
                           <button
                             type="button"
                             onClick={() => {
-                              setStaffList(prev => prev.filter(s => s.id !== member.id));
-                              recordAuditLog('STAFF_DELETED', member.id, `Removed staff member ${member.name} (${member.role})`);
+                              const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                              setPayrollInputForm({
+                                staffId: member.id,
+                                period: curPeriod,
+                                epfEtfEnabled: member.epfEtfEnabled !== false,
+                                basicSalary: member.basicSalary ?? 35000,
+                                budgetaryAllowance: member.budgetaryAllowance ?? 2500,
+                                otherAllowances: member.otherAllowances ?? 0,
+                                serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
+                                incentiveBonus: member.fixedBonus ?? 0,
+                                overtimeHours: 0,
+                                overtimeRate: member.overtimeRate ?? 250,
+                                otherDeductions: 0,
+                                notes: `Standard wages for ${member.name}`
+                              });
+                              setEditingPayrollId(null);
+                              setActiveTab('payroll');
+                              setPayrollSubTab('payslips');
+                              setProcessPayModalOpen(true);
                             }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                            title="Remove Employee"
+                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Issue Pay Slip with this employee's defaults"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Briefcase className="h-3 w-3" />
+                            <span>Issue Pay</span>
                           </button>
-                        )}
+
+                          {/* EDIT PROFILE */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingStaffId(member.id);
+                              setNewStaffForm({
+                                name: member.name,
+                                role: member.role,
+                                pin: member.pin,
+                                email: member.email || '',
+                                basicSalary: member.basicSalary ?? 35000,
+                                budgetaryAllowance: member.budgetaryAllowance ?? 2500,
+                                otherAllowances: member.otherAllowances ?? 0,
+                                fixedBonus: member.fixedBonus ?? 0,
+                                overtimeRate: member.overtimeRate ?? 250,
+                                epfEtfEnabled: member.epfEtfEnabled !== false
+                              });
+                              setAddStaffModalOpen(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-indigo-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                            title="Edit Staff Member"
+                          >
+                            <Edit3 className="h-4 w-4" />
+                          </button>
+
+                          {/* DELETE */}
+                          {currentUser.role === 'Administrator' && member.id !== currentUser.id && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (window.confirm(`Remove staff member ${member.name}?`)) {
+                                  setStaffList(prev => prev.filter(s => s.id !== member.id));
+                                  recordAuditLog('STAFF_DELETED', member.id, `Removed staff member ${member.name} (${member.role})`);
+                                }
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                              title="Remove Employee"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -9898,30 +10057,32 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         </div>
       )}
 
-      {/* MODAL: ADD NEW STAFF MEMBER */}
+      {/* MODAL: ADD / EDIT STAFF MEMBER */}
       {addStaffModalOpen && (
         <div 
           className="fixed inset-0 bg-black/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 text-slate-900"
           onClick={(e) => {
             if (e.target === e.currentTarget) {
               setAddStaffModalOpen(false);
+              setEditingStaffId(null);
               setStaffFormError('');
-              setNewStaffForm({ name: '', role: 'Cashier', pin: '', email: '' });
             }
           }}
         >
-          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-3xl w-full max-w-lg p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-[#ff5500]" />
-                <h3 className="text-base font-black text-slate-900">Add New Staff Member</h3>
+                <h3 className="text-base font-black text-slate-900">
+                  {editingStaffId ? 'Edit Staff Profile & Wages' : 'Add New Staff Member'}
+                </h3>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   setAddStaffModalOpen(false);
+                  setEditingStaffId(null);
                   setStaffFormError('');
-                  setNewStaffForm({ name: '', role: 'Cashier', pin: '', email: '' });
                 }}
                 className="text-slate-400 hover:text-slate-900 p-1 cursor-pointer"
               >
@@ -9930,8 +10091,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             </div>
 
             <form onSubmit={handleCreateStaff} className="mt-4 space-y-4">
+              {/* Profile Details */}
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Full Name *</label>
                 <input
                   type="text"
                   required
@@ -9950,18 +10112,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     value={newStaffForm.role}
                     onChange={e => setNewStaffForm(prev => ({ ...prev, role: e.target.value }))}
                     className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:outline-none focus:border-[#ff5500]"
-                    style={{ color: '#0f172a', backgroundColor: '#ffffff' }}
                   >
                     {Object.keys(ROLE_PERMISSIONS).map(role => (
-                      <option key={role} value={role} style={{ color: '#0f172a', backgroundColor: '#ffffff' }}>
-                        {role}
-                      </option>
+                      <option key={role} value={role}>{role}</option>
                     ))}
                   </select>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">4-Digit Security PIN</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">4-Digit Security PIN *</label>
                   <input
                     type="password"
                     inputMode="numeric"
@@ -9979,14 +10138,98 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address (Optional)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
                 <input
                   type="email"
                   value={newStaffForm.email}
                   onChange={e => setNewStaffForm(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="e.g. kasun@linolicove.me"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                  className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                 />
+              </div>
+
+              {/* SALARY & COMPENSATION SECTION */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block">
+                  Default Wage &amp; Allowance Structure ({settings.currency})
+                </span>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Base Monthly Salary *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={newStaffForm.basicSalary}
+                      onChange={e => setNewStaffForm(prev => ({ ...prev, basicSalary: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Budgetary Relief (BRA)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newStaffForm.budgetaryAllowance}
+                      onChange={e => setNewStaffForm(prev => ({ ...prev, budgetaryAllowance: e.target.value }))}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Fixed Allowances</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newStaffForm.otherAllowances}
+                      onChange={e => setNewStaffForm(prev => ({ ...prev, otherAllowances: e.target.value }))}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">Fixed Bonus</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={newStaffForm.fixedBonus}
+                      onChange={e => setNewStaffForm(prev => ({ ...prev, fixedBonus: e.target.value }))}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-1">OT Rate / Hour</label>
+                    <input
+                      type="number"
+                      step="1"
+                      value={newStaffForm.overtimeRate}
+                      onChange={e => setNewStaffForm(prev => ({ ...prev, overtimeRate: e.target.value }))}
+                      className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* EPF/ETF Enrolled Toggle */}
+                <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">Sri Lanka EPF / ETF Deduction</span>
+                    <span className="text-[10px] text-slate-400">Employee 8% + Employer 12%/3%</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setNewStaffForm(prev => ({ ...prev, epfEtfEnabled: !prev.epfEtfEnabled }))}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold cursor-pointer transition-colors ${
+                      newStaffForm.epfEtfEnabled !== false ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {newStaffForm.epfEtfEnabled !== false ? 'Enrolled' : 'Exempt'}
+                  </button>
+                </div>
               </div>
 
               {staffFormError && (
@@ -10000,8 +10243,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   type="button"
                   onClick={() => {
                     setAddStaffModalOpen(false);
+                    setEditingStaffId(null);
                     setStaffFormError('');
-                    setNewStaffForm({ name: '', role: 'Cashier', pin: '', email: '' });
                   }}
                   className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-colors cursor-pointer"
                 >
@@ -10011,7 +10254,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   type="submit"
                   className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs transition-all cursor-pointer active:scale-95"
                 >
-                  Save Employee
+                  {editingStaffId ? 'Save Profile Changes' : 'Save Employee'}
                 </button>
               </div>
             </form>
@@ -10890,11 +11133,27 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       <label className="block text-xs font-bold text-slate-700 mb-1">Employee</label>
                       <select
                         value={payrollInputForm.staffId}
-                        onChange={e => setPayrollInputForm(prev => ({ ...prev, staffId: e.target.value }))}
+                        onChange={(e) => {
+                          const targetId = e.target.value;
+                          const staff = staffList.find(s => s.id === targetId);
+
+                          setPayrollInputForm(prev => ({
+                            ...prev,
+                            staffId: targetId,
+                            basicSalary: staff?.basicSalary ?? 35000,
+                            budgetaryAllowance: staff?.budgetaryAllowance ?? 2500,
+                            otherAllowances: staff?.otherAllowances ?? 0,
+                            incentiveBonus: staff?.fixedBonus ?? 0,
+                            overtimeRate: staff?.overtimeRate ?? 250,
+                            epfEtfEnabled: staff?.epfEtfEnabled !== false
+                          }));
+                        }}
                         className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                       >
                         {staffList.map(s => (
-                          <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                          <option key={s.id} value={s.id}>
+                            {s.name} ({s.role}) - Base: {settings.currency} {s.basicSalary ?? 35000}
+                          </option>
                         ))}
                       </select>
                     </div>
