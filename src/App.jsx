@@ -34,8 +34,8 @@ import {
   ShieldCheck,
   Percent,
   TrendingUp,
-  TrendingDown, // <-- ADD THIS
-  PieChart,     // <-- ADD THIS
+  TrendingDown,
+  PieChart,
   RefreshCw,
   Eye,
   Sliders,
@@ -57,11 +57,7 @@ import {
   HardDrive,
   Mail,
   Briefcase,
-  FileText, // <-- Ensure this is present
-  Briefcase,
-  PieChart,
-  Trash2,
-  Plus
+  FileText
 } from 'lucide-react';
 import { syncToCloud, subscribeToCloud } from './firebase'; // <-- ADD THIS LINE
 import * as pdfjsLib from 'pdfjs-dist';
