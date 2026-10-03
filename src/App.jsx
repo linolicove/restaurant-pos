@@ -3806,20 +3806,55 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                 {item.approvedBy ? `${item.approvedBy} (${item.approvedAt || 'Verified'})` : <span className="text-slate-400">Pending</span>}
                               </td>
                               <td className="py-3 px-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    triggerAutoPrint({
-                                      type: 'CASH_OUT_VOUCHER',
-                                      data: item
-                                    }, `Reprint Cash Out Ref ${item.id}`);
-                                  }}
-                                  className="p-1.5 text-slate-400 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
-                                  title="Reprint Cash Out Voucher"
-                                >
-                                  <Printer className="h-3.5 w-3.5" />
-                                </button>
-                              </td>
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Reprint Voucher */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerAutoPrint({
+                                          type: 'CASH_OUT_VOUCHER',
+                                          data: item
+                                        }, `Reprint Cash Out Ref ${item.id}`);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+                                      title="Reprint Cash Out Voucher"
+                                    >
+                                      <Printer className="h-3.5 w-3.5" />
+                                    </button>
+
+                                    {/* Admin Delete Action */}
+                                    {currentUser.role === 'Administrator' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`Delete cash out voucher ${item.id} (${settings.currency} ${item.amount})?`)) {
+                                            // 1. Remove from expenses list
+                                            setExpenses(prev => (Array.isArray(prev) ? prev.filter(e => e.id !== item.id) : []));
+
+                                            // 2. Remove from active shift payouts if present
+                                            setCurrentShift(prev => ({
+                                              ...prev,
+                                              payouts: Array.isArray(prev?.payouts) 
+                                                ? prev.payouts.filter(p => p.id !== item.id) 
+                                                : []
+                                            }));
+
+                                            // 3. Record Audit Log
+                                            recordAuditLog(
+                                              'CASH_OUT_DELETED',
+                                              item.id,
+                                              `Admin ${currentUser.name} deleted cash out voucher ${item.id} for ${settings.currency} ${item.amount}`
+                                            );
+                                          }
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors cursor-pointer"
+                                        title="Delete Cash Out Record"
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
                             </tr>
                           );
                         });
