@@ -32,6 +32,8 @@ import {
   ShieldCheck,
   Percent,
   TrendingUp,
+  TrendingDown, // <-- ADD THIS
+  PieChart,     // <-- ADD THIS
   RefreshCw,
   Eye,
   Sliders,
@@ -61,7 +63,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 const ROLE_PERMISSIONS = {
-  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'cancelled', 'staff', 'settings'],
+  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin', 'accounting','payroll', 'cancelled', 'staff', 'settings'],
   Manager: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'cancelled', 'settings'],
   Cashier: ['pos', 'billing', 'tables', 'shifts', 'reports'],
   'Kitchen Chef': ['kds', 'recipes', 'stock'],
@@ -341,6 +343,9 @@ export default function App() {
     invoice: 1,
     cashOut: 1
   });
+
+  const [accountingPeriod, setAccountingPeriod] = useState('ALL'); // 'ALL' | 'TODAY' | 'THIS_MONTH' | 'LAST_MONTH'
+
   // Persistent Attendance & Time Clock
   const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_archive_v1', []);
   const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_archive_v1', []);
@@ -2331,6 +2336,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
             {[
               { id: 'menu_admin', name: 'Menu Management', icon: ClipboardList, badgeText: '+Add' },
+              { id: 'accounting', name: 'Accounting & P&L', icon: PieChart }, // <-- ADD THIS
               { id: 'cancelled', name: 'Cancelled Tickets', icon: Trash2 },
               { id: 'staff', name: 'Staff Management', icon: Users },
               { id: 'payroll', name: 'Employment & Payroll', icon: Briefcase },
@@ -5473,6 +5479,391 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </tbody>
               </table>
             </div>
+          </div>
+        )}
+
+        {/* VIEW: COMPREHENSIVE ACCOUNTING & P&L ANALYTICS */}
+        {activeTab === 'accounting' && (
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+            {/* Header & Date Range Filter */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
+                  <PieChart className="h-5 w-5 text-[#ff5500]" />
+                  Financial Accounting, P&amp;L &amp; Expense Analytics
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Track revenue vs operational expenditures, cash-out outflow categories, cost of inventory, and net profits.
+                </p>
+              </div>
+
+              {/* Filter Buttons */}
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl shadow-xs text-xs font-bold">
+                {[
+                  { id: 'ALL', label: 'All Time' },
+                  { id: 'TODAY', label: 'Today' },
+                  { id: 'THIS_MONTH', label: 'This Month' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => setAccountingPeriod(f.id)}
+                    className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
+                      accountingPeriod === f.id
+                        ? 'bg-[#ff5500] text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Calculations Engine */}
+            {(() => {
+              const todayStr = getLocalDateStr();
+              const currentMonthStr = todayStr.slice(0, 7); // 'YYYY-MM'
+
+              // 1. Filter Sales / Revenue
+              const filteredSales = settledInvoices.filter(inv => {
+                if (accountingPeriod === 'TODAY') return inv.date === todayStr;
+                if (accountingPeriod === 'THIS_MONTH') return inv.date && inv.date.startsWith(currentMonthStr);
+                return true;
+              });
+
+              // 2. Filter Cash-Out Expenses
+              const filteredExpenses = (cashOutVouchers || []).filter(v => {
+                if (v.status === 'REJECTED') return false;
+                if (accountingPeriod === 'TODAY') return v.date === todayStr;
+                if (accountingPeriod === 'THIS_MONTH') return v.date && v.date.startsWith(currentMonthStr);
+                return true;
+              });
+
+              // 3. Filter Payroll Disbursed
+              const filteredPayroll = (payrollRecords || []).filter(p => {
+                if (accountingPeriod === 'THIS_MONTH') return p.period === currentMonthStr;
+                if (accountingPeriod === 'TODAY') return p.processedAt && p.processedAt.startsWith(todayStr);
+                return true;
+              });
+
+              // Revenue Metrics
+              const grossSalesRevenue = filteredSales.reduce((acc, inv) => acc + (inv.subtotal || 0), 0);
+              const totalTaxCollected = filteredSales.reduce((acc, inv) => acc + (inv.tax || 0), 0);
+              const totalServiceCharge = filteredSales.reduce((acc, inv) => acc + (inv.serviceCharge || 0), 0);
+              const totalDiscountsGiven = filteredSales.reduce((acc, inv) => acc + (inv.discount || 0), 0);
+              const netSalesRevenue = grossSalesRevenue - totalDiscountsGiven;
+              const grossInflow = filteredSales.reduce((acc, inv) => acc + (inv.total || 0), 0);
+
+              // Expense Metrics: Cash Out Categorization Breakdown
+              const expenseCategories = {};
+              filteredExpenses.forEach(exp => {
+                const cat = (exp.reason || 'General Purchases').trim();
+                const amt = Number(exp.amount) || 0;
+                expenseCategories[cat] = (expenseCategories[cat] || 0) + amt;
+              });
+              const totalCashOutDisbursed = filteredExpenses.reduce((acc, exp) => acc + (Number(exp.amount) || 0), 0);
+
+              // Payroll Expense Breakdown
+              const totalPayrollDisbursed = filteredPayroll.reduce((acc, p) => acc + (p.breakdown?.netSalary || p.netPay || 0), 0);
+              const totalEmployerEpfEtf = filteredPayroll.reduce((acc, p) => acc + (p.breakdown?.epfEmployer || 0) + (p.breakdown?.etfEmployer || 0), 0);
+
+              // Total Operating Expenses (OPEX)
+              const totalOperatingExpenses = totalCashOutDisbursed + totalPayrollDisbursed + totalEmployerEpfEtf;
+
+              // Net Operating Profit
+              const netProfit = netSalesRevenue - totalOperatingExpenses;
+              const profitMargin = netSalesRevenue > 0 ? ((netProfit / netSalesRevenue) * 100).toFixed(1) : 0;
+
+              // Top 10 Items Sold
+              const itemSalesMap = {};
+              filteredSales.forEach(inv => {
+                (inv.items || []).forEach(item => {
+                  if (!itemSalesMap[item.name]) {
+                    itemSalesMap[item.name] = { name: item.name, qty: 0, revenue: 0 };
+                  }
+                  itemSalesMap[item.name].qty += (item.qty || 1);
+                  itemSalesMap[item.name].revenue += ((item.price || 0) * (item.qty || 1));
+                });
+              });
+              const topSoldItems = Object.values(itemSalesMap).sort((a, b) => b.qty - a.qty).slice(0, 10);
+              const maxItemQty = topSoldItems.length > 0 ? topSoldItems[0].qty : 1;
+
+              return (
+                <div className="space-y-6">
+                  {/* Top Key Performance Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Gross Revenue */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Total Net Revenue</span>
+                        <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
+                          <TrendingUp className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black font-mono text-slate-900 mt-2">
+                        {settings.currency} {netSalesRevenue.toFixed(2)}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Gross {settings.currency} {grossSalesRevenue.toFixed(2)} - Disc {settings.currency} {totalDiscountsGiven.toFixed(2)}
+                      </p>
+                    </div>
+
+                    {/* Operational Cash Out */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Cash Out Expenses</span>
+                        <span className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
+                          <TrendingDown className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black font-mono text-rose-600 mt-2">
+                        {settings.currency} {totalCashOutDisbursed.toFixed(2)}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">{filteredExpenses.length} Vouchers disbursed</p>
+                    </div>
+
+                    {/* Total Wages & Statutory */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase text-slate-400">Salaries &amp; EPF/ETF</span>
+                        <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
+                          <Briefcase className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black font-mono text-indigo-600 mt-2">
+                        {settings.currency} {(totalPayrollDisbursed + totalEmployerEpfEtf).toFixed(2)}
+                      </p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Take-home + {settings.currency} {totalEmployerEpfEtf.toFixed(2)} EPF/ETF
+                      </p>
+                    </div>
+
+                    {/* Net Profit */}
+                    <div className={`rounded-2xl border p-4 shadow-xs ${
+                      netProfit >= 0 ? 'bg-emerald-950 text-white border-emerald-900' : 'bg-rose-950 text-white border-rose-900'
+                    }`}>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-black uppercase tracking-wider text-emerald-300">
+                          Net Operating Profit
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black font-mono bg-white/10">
+                          {profitMargin}% Margin
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black font-mono mt-2">
+                        {settings.currency} {netProfit.toFixed(2)}
+                      </p>
+                      <p className="text-[11px] opacity-80 mt-1">
+                        {netProfit >= 0 ? 'Profitable operation' : 'Operating at a loss'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Main Grid: Comprehensive P&L Statement and Expense Category Breakdown */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* PROFIT & LOSS STATEMENT */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                          <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                            <Receipt className="h-4 w-4 text-[#ff5500]" />
+                            Official Profit &amp; Loss Statement
+                          </h3>
+                          <span className="text-[11px] font-mono font-bold text-slate-400">
+                            {accountingPeriod}
+                          </span>
+                        </div>
+
+                        <div className="divide-y divide-slate-100 text-xs py-2 space-y-2">
+                          {/* REVENUE SECTION */}
+                          <div className="pt-2">
+                            <span className="text-[10px] font-black uppercase text-emerald-600 block mb-1">
+                              1. Operating Revenue
+                            </span>
+                            <div className="flex justify-between py-1 text-slate-700">
+                              <span>Gross Menu &amp; Bar Invoiced Sales</span>
+                              <span className="font-mono font-bold">{settings.currency} {grossSalesRevenue.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-rose-600">
+                              <span>Less: Promotional Discounts &amp; Vouchers</span>
+                              <span className="font-mono font-bold">-{settings.currency} {totalDiscountsGiven.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1.5 font-black text-slate-900 bg-slate-50 px-2 rounded-lg mt-1">
+                              <span>Net Sales Revenue</span>
+                              <span className="font-mono text-emerald-700">{settings.currency} {netSalesRevenue.toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                          {/* OPERATING EXPENDITURES */}
+                          <div className="pt-3">
+                            <span className="text-[10px] font-black uppercase text-rose-600 block mb-1">
+                              2. Operating Expenditures (OPEX)
+                            </span>
+                            <div className="flex justify-between py-1 text-slate-700">
+                              <span>Cash Out Purchases &amp; Petty Cash Disbursed</span>
+                              <span className="font-mono">{settings.currency} {totalCashOutDisbursed.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-slate-700">
+                              <span>Staff Net Salaries &amp; Wage Disbursed</span>
+                              <span className="font-mono">{settings.currency} {totalPayrollDisbursed.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-slate-700">
+                              <span>Employer EPF (12%) &amp; ETF (3%) Remittance</span>
+                              <span className="font-mono">{settings.currency} {totalEmployerEpfEtf.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1.5 font-black text-rose-700 bg-rose-50 px-2 rounded-lg mt-1">
+                              <span>Total Operating Expenses</span>
+                              <span className="font-mono">-{settings.currency} {totalOperatingExpenses.toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                          {/* TAX & GRATUITY ESCROW */}
+                          <div className="pt-3">
+                            <span className="text-[10px] font-black uppercase text-indigo-600 block mb-1">
+                              3. Escrow Fiduciary Liabilities (Collected &amp; Held)
+                            </span>
+                            <div className="flex justify-between py-1 text-slate-500">
+                              <span>Government Tax / VAT Invoiced</span>
+                              <span className="font-mono">{settings.currency} {totalTaxCollected.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between py-1 text-slate-500">
+                              <span>Service Charge Pool Collected</span>
+                              <span className="font-mono">{settings.currency} {totalServiceCharge.toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* BOTTOM NET PROFIT TOTAL */}
+                      <div className="pt-3 border-t border-slate-200 mt-2">
+                        <div className="flex justify-between items-center text-sm font-black p-3 bg-slate-900 text-white rounded-xl">
+                          <span>NET OPERATING SURPLUS / (DEFICIT)</span>
+                          <span className={`font-mono text-base ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {settings.currency} {netProfit.toFixed(2)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* EXPENSE CATEGORY BREAKDOWN CHART */}
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                          <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                            <Coins className="h-4 w-4 text-[#ff5500]" />
+                            Cash Out Spending Categories
+                          </h3>
+                          <span className="text-[11px] font-mono text-slate-500 font-bold">
+                            {Object.keys(expenseCategories).length} Categories
+                          </span>
+                        </div>
+
+                        {/* Visual Bar Breakdown */}
+                        <div className="py-3 space-y-3.5">
+                          {Object.keys(expenseCategories).length === 0 ? (
+                            <p className="text-xs text-slate-400 italic py-8 text-center">
+                              No cash-out disbursements recorded for this period.
+                            </p>
+                          ) : (
+                            Object.entries(expenseCategories)
+                              .sort((a, b) => b[1] - a[1])
+                              .map(([category, amount]) => {
+                                const percentage = totalCashOutDisbursed > 0 
+                                  ? ((amount / totalCashOutDisbursed) * 100).toFixed(1) 
+                                  : 0;
+
+                                return (
+                                  <div key={category} className="space-y-1">
+                                    <div className="flex justify-between text-xs font-bold">
+                                      <span className="text-slate-800">{category}</span>
+                                      <span className="font-mono text-slate-900">
+                                        {settings.currency} {amount.toFixed(2)} <span className="text-slate-400 text-[10px]">({percentage}%)</span>
+                                      </span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                                      <div
+                                        className="bg-orange-500 h-full rounded-full transition-all duration-500"
+                                        style={{ width: `${percentage}%` }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Total Cash Out summary footer */}
+                      <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-500">Total Cash Out Flow</span>
+                        <span className="font-mono font-black text-rose-600 text-sm">
+                          {settings.currency} {totalCashOutDisbursed.toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* TOP 10 ITEMS SOLD ANALYTICS CHART */}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                          <BarChart3 className="h-4 w-4 text-[#ff5500]" />
+                          Top 10 High Volume Menu Items Sold
+                        </h3>
+                        <p className="text-[10px] text-slate-400">Item units dispensed vs total revenue generated</p>
+                      </div>
+                      <span className="text-xs font-mono font-bold text-slate-600">
+                        {topSoldItems.length} Products
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {topSoldItems.length === 0 ? (
+                        <p className="text-xs text-slate-400 italic py-8 text-center">
+                          No settled menu items found in the selected period.
+                        </p>
+                      ) : (
+                        topSoldItems.map((item, index) => {
+                          const barWidth = Math.max(5, (item.qty / maxItemQty) * 100);
+
+                          return (
+                            <div key={item.name} className="flex flex-col sm:flex-row sm:items-center gap-2 text-xs">
+                              {/* Item rank and title */}
+                              <div className="w-48 shrink-0 flex items-center gap-2">
+                                <span className="h-5 w-5 rounded bg-slate-900 text-white text-[10px] font-black flex items-center justify-center">
+                                  {index + 1}
+                                </span>
+                                <span className="font-bold text-slate-800 truncate" title={item.name}>
+                                  {item.name}
+                                </span>
+                              </div>
+
+                              {/* Graphical Bar */}
+                              <div className="flex-1 bg-slate-100 h-6 rounded-lg overflow-hidden relative flex items-center px-2">
+                                <div
+                                  className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-orange-400 to-[#ff5500] rounded-lg opacity-85 transition-all duration-500"
+                                  style={{ width: `${barWidth}%` }}
+                                />
+                                <span className="relative z-10 text-[10px] font-mono font-black text-white drop-shadow-xs">
+                                  {item.qty} units
+                                </span>
+                              </div>
+
+                              {/* Invoiced Revenue */}
+                              <div className="w-28 text-right font-mono font-bold text-slate-900">
+                                {settings.currency} {item.revenue.toFixed(2)}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
