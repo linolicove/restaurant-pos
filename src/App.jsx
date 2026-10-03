@@ -2406,7 +2406,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
           <div className="mt-5 border-t border-zinc-800/80 pt-3 text-center">
             <p className="text-[10px] text-zinc-500">
-              Default PINs: Admin (1234) • Cashier (1111) • Chef (2222) • Bar (3333)
+              Authorized Terminal • Enter Assigned 4-Digit Security PIN
             </p>
           </div>
         </div>
@@ -6916,13 +6916,9 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
                     Employee Registry &amp; Wage Structures
                   </h3>
-                  <button
-                    type="button"
-                    onClick={() => setAddStaffModalOpen(true)}
-                    className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add Staff Profile
-                  </button>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                      View configured employee profiles and statutory wage packages
+                    </p>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -6951,7 +6947,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           </td>
                           <td className="py-3 px-4 text-slate-600">{member.email}</td>
                           <td className="py-3 px-4 font-mono text-slate-700">1992{member.pin}402V</td>
-                          <td className="py-3 px-4 font-mono text-slate-500">•••• ({member.pin})</td>
+                          <td className="py-3 px-4 font-mono text-slate-400">••••</td>
                           <td className="py-3 px-4 text-right">
                             <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
                               Active
