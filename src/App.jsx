@@ -65,11 +65,12 @@ import * as pdfjsLib from 'pdfjs-dist';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
 
 const ROLE_PERMISSIONS = {
-  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin', 'accounting','payroll', 'cancelled', 'staff', 'settings'],
-  Manager: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'cancelled', 'settings'],
+  Administrator: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin', 'accounting','payroll', 'staff', 'settings'],
+  Manager: ['pos', 'kds', 'bar', 'billing', 'tables', 'stock', 'recipes', 'shifts', 'reports', 'menu_admin','payroll', 'settings'],
   Cashier: ['pos', 'billing', 'tables', 'shifts', 'reports'],
   'Kitchen Chef': ['kds', 'recipes', 'stock'],
   Bartender: ['bar', 'recipes', 'stock'],
+  Accountant: ['stock', 'reports','payroll', 'accounting'],
   'Floor Server': ['pos', 'tables', 'billing']
 };
 
@@ -2517,7 +2518,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             {[
               { id: 'menu_admin', name: 'Menu Management', icon: ClipboardList, badgeText: '+Add' },
               { id: 'accounting', name: 'Accounting & P&L', icon: PieChart }, // <-- ADD THIS
-              { id: 'cancelled', name: 'Cancelled Tickets', icon: Trash2 },
               { id: 'staff', name: 'Staff Management', icon: Users },
               { id: 'payroll', name: 'Employment & Payroll', icon: Briefcase },
               { id: 'settings', name: 'System Settings', icon: Settings }
@@ -5626,80 +5626,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         </tr>
                       );
                     })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* VIEW 11: CANCELLED TICKETS */}
-        {activeTab === 'cancelled' && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-black text-slate-900">Cancelled Tickets &amp; Voids Audit</h2>
-                <p className="text-xs text-slate-500 mt-0.5">Audit log of all voided items and cancelled line tickets.</p>
-              </div>
-              {currentUser.role === 'Administrator' && cancelledTickets.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCancelledTickets([]);
-                    recordAuditLog('ADMIN_CLEAR_CANCELLED_TICKETS', 'ALL', 'Purged all void ticket history');
-                  }}
-                  className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Clear Void History (Admin)
-                </button>
-              )}
-            </div>
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Audit ID</th>
-                    <th className="py-3 px-4">Time</th>
-                    <th className="py-3 px-4">Dish / Item</th>
-                    <th className="py-3 px-4">Table</th>
-                    <th className="py-3 px-4">Mandatory Reason</th>
-                    <th className="py-3 px-4">Authorized Staff</th>
-                    {currentUser.role === 'Administrator' && (
-                      <th className="py-3 px-4 text-right">Admin Action</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {cancelledTickets.length === 0 ? (
-                    <tr>
-                      <td colSpan={currentUser.role === 'Administrator' ? 7 : 6} className="py-4 text-center text-slate-400 italic">No voids logged.</td>
-                    </tr>
-                  ) : (
-                    cancelledTickets.map(voidItem => (
-                      <tr key={voidItem.id} className="hover:bg-slate-50/70">
-                        <td className="py-3 px-4 font-mono font-bold text-rose-600">{voidItem.id}</td>
-                        <td className="py-3 px-4 text-slate-400">{voidItem.timestamp}</td>
-                        <td className="py-3 px-4 font-bold text-slate-900">{voidItem.qty}x {voidItem.itemName}</td>
-                        <td className="py-3 px-4 text-slate-600">{voidItem.table}</td>
-                        <td className="py-3 px-4 text-slate-700 italic">"{voidItem.reason}"</td>
-                        <td className="py-3 px-4 font-semibold text-slate-800">{voidItem.authorizedBy}</td>
-                        {currentUser.role === 'Administrator' && (
-                          <td className="py-3 px-4 text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setCancelledTickets(prev => prev.filter(v => v.id !== voidItem.id));
-                                recordAuditLog('ADMIN_DELETE_VOID_ENTRY', voidItem.id, `Deleted void record ${voidItem.id} (${voidItem.itemName})`);
-                              }}
-                              className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                              title="Admin Delete Void Record"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                    ))
-                  )}
                 </tbody>
               </table>
             </div>
