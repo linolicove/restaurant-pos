@@ -4862,6 +4862,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                               <option value="Safe Drop">Safe Drop (Bank Deposit)</option>
                               <option value="Petty Cash / Store Supplies">Petty Cash / Supplies</option>
                               <option value="Staff Tip Out">Staff Tip Out</option>
+                              <option value="Utilities">Utilities</option>
                               <option value="Other Emergency">Other Emergency</option>
                             </select>
                           </div>
@@ -5539,14 +5540,33 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 return true;
               });
 
-              // 2. Filter Cash-Out Expenses (Disbursements)
-              const filteredExpenses = expenseData.filter(v => {
+              // 2. Filter All Cash-Out Disbursements
+              const filteredDisbursements = expenseData.filter(v => {
                 if (!v || v.status === 'REJECTED') return false;
                 const dStr = extractDateStr(v.date || v.createdAt) || String(v.date || '');
                 if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
                 if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
                 return true;
               });
+
+              // Helper: Distinguish internal banking transfers from actual operating expenses
+              const isBankingTransfer = (item) => {
+                const category = String(item.category || '').toLowerCase();
+                const reason = String(item.reason || '').toLowerCase();
+                return (
+                  category.includes('safe drop') ||
+                  category.includes('bank deposit') ||
+                  category.includes('banking') ||
+                  reason.includes('safe drop') ||
+                  reason.includes('bank deposit')
+                );
+              };
+
+              // True operational expenditures (vendor payouts, petty cash, supplies)
+              const operationalExpenses = filteredDisbursements.filter(v => !isBankingTransfer(v));
+
+              // Internal drawer-to-safe / banking transfers (Non-OPEX)
+              const bankingTransfers = filteredDisbursements.filter(v => isBankingTransfer(v));
 
               // 3. Filter Payroll Disbursed
               const filteredPayroll = payrollData.filter(p => {
@@ -5564,26 +5584,30 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const calculatedNet = grossSalesRevenue - totalDiscountsGiven;
               const netSalesRevenue = calculatedNet > 0 ? calculatedNet : filteredSales.reduce((acc, inv) => acc + (Number(inv.total) || 0), 0);
 
-              // Expense Metrics: Cash Out Categorization Breakdown
+              // Expense Categories: Only true operating costs (Safe Drop excluded)
               const expenseCategories = {};
-              filteredExpenses.forEach(exp => {
+              operationalExpenses.forEach(exp => {
                 const cat = (exp.category || exp.reason || 'General Purchases').trim();
                 const amt = Number(exp.amount) || 0;
                 expenseCategories[cat] = (expenseCategories[cat] || 0) + amt;
               });
-              const totalCashOutDisbursed = filteredExpenses.reduce((acc, exp) => acc + (Number(exp.amount) || 0), 0);
 
-              // Payroll Expense Breakdown
+              // Totals
+              const totalOperationalCashOut = operationalExpenses.reduce((acc, exp) => acc + (Number(exp.amount) || 0), 0);
+              const totalSafeDropBanking = bankingTransfers.reduce((acc, exp) => acc + (Number(exp.amount) || 0), 0);
+              const totalDrawerCashOutflow = totalOperationalCashOut + totalSafeDropBanking;
+
+              // Payroll Totals
               const totalPayrollDisbursed = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.netSalary) || Number(p.netPay) || 0), 0);
               const totalEmployerEpfEtf = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.epfEmployer) || 0) + (Number(p.breakdown?.etfEmployer) || 0), 0);
 
-              // Total Operating Expenses (OPEX)
-              const totalOperatingExpenses = totalCashOutDisbursed + totalPayrollDisbursed + totalEmployerEpfEtf;
+              // True OPEX: Vendor purchases + salaries + EPF/ETF (Safe Drops EXCLUDED)
+              const totalOperatingExpenses = totalOperationalCashOut + totalPayrollDisbursed + totalEmployerEpfEtf;
 
-              // Net Operating Profit
+              // True Net Operating Profit
               const netProfit = netSalesRevenue - totalOperatingExpenses;
               const profitMargin = netSalesRevenue > 0 ? ((netProfit / netSalesRevenue) * 100).toFixed(1) : 0;
-
+              
               // Top 10 Items Sold
               const itemSalesMap = {};
               filteredSales.forEach(inv => {
@@ -5620,18 +5644,20 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       </p>
                     </div>
 
-                    {/* Operational Cash Out */}
+                    {/* Operational Cash Out (Excludes Safe Drops) */}
                     <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
                       <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-slate-400">Cash Out Expenses</span>
+                        <span className="text-[10px] font-black uppercase text-slate-400">Operating Expenses</span>
                         <span className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
                           <TrendingDown className="h-4 w-4" />
                         </span>
                       </div>
                       <p className="text-2xl font-black font-mono text-rose-600 mt-2">
-                        {settings.currency} {totalCashOutDisbursed.toFixed(2)}
+                        {settings.currency} {totalOperationalCashOut.toFixed(2)}
                       </p>
-                      <p className="text-[11px] text-slate-400 mt-1">{filteredExpenses.length} Vouchers disbursed</p>
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        Excludes {settings.currency} {totalSafeDropBanking.toFixed(2)} in safe drops
+                      </p>
                     </div>
 
                     {/* Total Wages & Statutory */}
@@ -5706,14 +5732,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             </div>
                           </div>
 
-                          {/* OPERATING EXPENDITURES */}
+                          {/* OPERATING EXPENDITURES (Excludes Safe Drop) */}
                           <div className="pt-3">
                             <span className="text-[10px] font-black uppercase text-rose-600 block mb-1">
                               2. Operating Expenditures (OPEX)
                             </span>
                             <div className="flex justify-between py-1 text-slate-700">
-                              <span>Cash Out Purchases &amp; Petty Cash Disbursed</span>
-                              <span className="font-mono">{settings.currency} {totalCashOutDisbursed.toFixed(2)}</span>
+                              <span>Cash Out Vendor Purchases &amp; Supplies</span>
+                              <span className="font-mono">{settings.currency} {totalOperationalCashOut.toFixed(2)}</span>
                             </div>
                             <div className="flex justify-between py-1 text-slate-700">
                               <span>Staff Net Salaries &amp; Wage Disbursed</span>
@@ -5729,10 +5755,21 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             </div>
                           </div>
 
-                          {/* TAX & GRATUITY ESCROW */}
+                          {/* INTERNAL ASSET TRANSFERS (Safe Drop / Bank Deposit) */}
                           <div className="pt-3">
                             <span className="text-[10px] font-black uppercase text-indigo-600 block mb-1">
-                              3. Escrow Fiduciary Liabilities (Collected &amp; Held)
+                              3. Internal Asset Transfers &amp; Banking (Non-Expense)
+                            </span>
+                            <div className="flex justify-between py-1 text-slate-600">
+                              <span>Safe Drops &amp; Bank Deposits</span>
+                              <span className="font-mono font-bold text-indigo-700">+{settings.currency} {totalSafeDropBanking.toFixed(2)}</span>
+                            </div>
+                          </div>
+
+                          {/* TAX & GRATUITY ESCROW */}
+                          <div className="pt-3">
+                            <span className="text-[10px] font-black uppercase text-slate-500 block mb-1">
+                              4. Escrow Fiduciary Liabilities (Collected &amp; Held)
                             </span>
                             <div className="flex justify-between py-1 text-slate-500">
                               <span>Government Tax / VAT Invoiced</span>
@@ -5763,25 +5800,25 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                           <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
                             <Coins className="h-4 w-4 text-[#ff5500]" />
-                            Cash Out Spending Categories
+                            Operational Spending Categories
                           </h3>
                           <span className="text-[11px] font-mono text-slate-500 font-bold">
                             {Object.keys(expenseCategories).length} Categories
                           </span>
                         </div>
 
-                        {/* Visual Bar Breakdown */}
+                        {/* Visual Bar Breakdown (Operational Expenses Only) */}
                         <div className="py-3 space-y-3.5">
                           {Object.keys(expenseCategories).length === 0 ? (
                             <p className="text-xs text-slate-400 italic py-8 text-center">
-                              No cash-out disbursements recorded for this period.
+                              No operational expenditures recorded for this period.
                             </p>
                           ) : (
                             Object.entries(expenseCategories)
                               .sort((a, b) => b[1] - a[1])
                               .map(([category, amount]) => {
-                                const percentage = totalCashOutDisbursed > 0 
-                                  ? ((amount / totalCashOutDisbursed) * 100).toFixed(1) 
+                                const percentage = totalOperationalCashOut > 0 
+                                  ? ((amount / totalOperationalCashOut) * 100).toFixed(1) 
                                   : 0;
 
                                 return (
@@ -5805,12 +5842,26 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         </div>
                       </div>
 
-                      {/* Total Cash Out summary footer */}
-                      <div className="pt-3 border-t border-slate-100 flex justify-between items-center text-xs">
-                        <span className="font-bold text-slate-500">Total Cash Out Flow</span>
-                        <span className="font-mono font-black text-rose-600 text-sm">
-                          {settings.currency} {totalCashOutDisbursed.toFixed(2)}
-                        </span>
+                      {/* Outflow Breakdown Footer */}
+                      <div className="pt-3 border-t border-slate-100 space-y-1.5 text-xs">
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>Operational Expenses (OPEX):</span>
+                          <span className="font-mono font-bold text-rose-600">
+                            {settings.currency} {totalOperationalCashOut.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center text-slate-600">
+                          <span>Bank &amp; Safe Transfers:</span>
+                          <span className="font-mono font-bold text-indigo-600">
+                            {settings.currency} {totalSafeDropBanking.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1.5 border-t border-slate-100 font-bold text-slate-800">
+                          <span>Total Drawer Outflow:</span>
+                          <span className="font-mono font-black text-slate-900 text-sm">
+                            {settings.currency} {totalDrawerCashOutflow.toFixed(2)}
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -5877,7 +5928,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             })()}
           </div>
         )}
-
+        
         {/* VIEW: COMPREHENSIVE EMPLOYMENT, TIME CLOCK & SRI LANKAN PAYROLL */}
         {activeTab === 'payroll' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
