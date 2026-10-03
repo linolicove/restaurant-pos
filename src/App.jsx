@@ -6140,29 +6140,77 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setVendorBillForm({
-                    invoiceNumber: '',
-                    vendorName: '',
-                    category: 'Food & Beverage Supply',
-                    billDate: getLocalDateStr(),
-                    dueDate: getLocalDateStr(),
-                    amount: '',
-                    paymentMethod: 'BANK_TRANSFER',
-                    paymentStatus: 'PAID',
-                    notes: ''
-                  });
-                  setAddVendorBillModalOpen(true);
-                }}
-                className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Record Vendor Bill</span>
-              </button>
-            </div>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
+                {/* 1. EXCEL EXPORT BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const billsList = Array.isArray(vendorBills) ? vendorBills : [];
+                    if (billsList.length === 0) {
+                      alert('No vendor bills available to export.');
+                      return;
+                    }
 
+                    const exportRows = billsList.map(bill => ({
+                      'Invoice #': bill.invoiceNumber || bill.id,
+                      'Bill Date': bill.billDate || 'N/A',
+                      'Due Date': bill.dueDate || 'N/A',
+                      'Vendor / Payee': bill.vendorName,
+                      'Category': bill.category,
+                      'Payment Method': bill.paymentMethod,
+                      'Amount': Number(bill.amount) || 0,
+                      'Payment Status': bill.paymentStatus,
+                      'Recorded By': bill.recordedBy || 'N/A',
+                      'Notes': bill.notes || ''
+                    }));
+
+                    exportReportToExcel('Vendor_Bills_Accounts_Payable', exportRows, 'Vendor_Invoices');
+                  }}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                  title="Export Vendor Invoices to Excel (.xlsx)"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  <span>Export Excel</span>
+                </button>
+
+                {/* 2. PDF / PRINT BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.print();
+                  }}
+                  className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                  title="Print or Save Vendor Bills as PDF"
+                >
+                  <Printer className="h-3.5 w-3.5 text-orange-400" />
+                  <span>PDF / Print</span>
+                </button>
+
+                {/* 3. RECORD VENDOR BILL BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVendorBillForm({
+                      invoiceNumber: '',
+                      vendorName: '',
+                      category: 'Food & Beverage Supply',
+                      billDate: getLocalDateStr(),
+                      dueDate: getLocalDateStr(),
+                      amount: '',
+                      paymentMethod: 'BANK_TRANSFER',
+                      paymentStatus: 'PAID',
+                      notes: ''
+                    });
+                    setAddVendorBillModalOpen(true);
+                  }}
+                  className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all active:scale-95"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Record Vendor Bill</span>
+                </button>
+              </div>
+            </div>
+            
             {/* KPI Cards */}
             {(() => {
               const totalBills = vendorBills.reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
