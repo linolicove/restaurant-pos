@@ -1513,17 +1513,28 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
   // Instant print invocation as soon as slip data is staged
   useEffect(() => {
     if (activePrintSlip) {
+      document.body.classList.add('printing-thermal');
       const timer = setTimeout(() => {
         try {
           window.print();
         } catch (e) {
           console.warn('Auto print spooler notice:', e);
+        } finally {
+          // Reset after print dialog closes
+          setTimeout(() => {
+            document.body.classList.remove('printing-thermal');
+            setActivePrintSlip(null);
+          }, 500);
         }
-      }, 50);
-      return () => clearTimeout(timer);
+      }, 80);
+      return () => {
+        clearTimeout(timer);
+        document.body.classList.remove('printing-thermal');
+      };
+    } else {
+      document.body.classList.remove('printing-thermal');
     }
   }, [activePrintSlip]);
-
   const recordAuditLog = (action, targetRef, details) => {
     const newLog = {
       id: `LOG-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
@@ -2470,10 +2481,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     );
   }
 
-  {/* Global CSS fix for select dropdowns & dual thermal / standard PDF print styles */}
-  return (
-    <div className="flex h-screen w-full bg-[#0b0f19] text-zinc-100 font-sans select-none overflow-hidden antialiased">
-      {/* Global CSS fix for select dropdowns & dual thermal / standard PDF print styles */}
+  {/* Global CSS fix for select dropdowns & isolated print modes */}
       <style>{`
         select, option {
           color: #0f172a !important;
@@ -2492,7 +2500,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             print-color-adjust: exact !important;
           }
 
-          /* Hide UI Chrome (Navigation, Sidebar Drawer, Edge Tabs, Floating Buttons, Notifications) */
+          /* Hide application UI elements */
           aside,
           header,
           button,
@@ -2510,80 +2518,78 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             padding: 0 !important;
           }
 
-          /* 2. Standard Document & PDF Report Print Mode (A4 / Letter Clean Layout) */
-          body:not(:has(#thermal-print-area:not(:empty))) {
-            @page {
-              size: auto;
-              margin: 10mm;
-            }
+          /* 2. THERMAL PRINT MODE (When activePrintSlip exists / #thermal-print-area has content) */
+          body.printing-thermal * {
+            visibility: hidden !important;
           }
 
-          main {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-            overflow: visible !important;
-            display: block !important;
-            height: auto !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            padding: 0 !important;
-            margin: 0 !important;
+          body.printing-thermal main {
+            display: none !important;
           }
 
-          /* Ensure report tables, borders, and rows remain clean and legible in PDF */
-          table {
-            width: 100% !important;
-            border-collapse: collapse !important;
-            color: #000000 !important;
-          }
-
-          th, td {
-            color: #000000 !important;
-            border-bottom: 1px solid #cbd5e1 !important;
-            padding: 6px 8px !important;
-          }
-
-          thead {
-            display: table-header-group !important;
-          }
-
-          tr {
-            break-inside: avoid !important;
-            page-break-inside: avoid !important;
-          }
-
-          /* 3. Dedicated Thermal Receipt Spooler (Active when thermal-print-area is targeted) */
-          #thermal-print-area:not(:empty) {
+          body.printing-thermal #thermal-print-area,
+          body.printing-thermal #thermal-print-area * {
             visibility: visible !important;
+            display: block !important;
+          }
+
+          body.printing-thermal #thermal-print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
             width: ${settings.receiptRollWidth === '58mm' ? '58mm' : '80mm'} !important;
-            max-width: 100% !important;
+            max-width: ${settings.receiptRollWidth === '58mm' ? '58mm' : '80mm'} !important;
             margin: 0 !important;
             padding: ${settings.receiptMargin || '2mm'} !important;
-            box-shadow: none !important;
-            border: none !important;
             background: #ffffff !important;
             color: #000000 !important;
             font-size: ${settings.receiptFontSize || '11px'} !important;
             font-family: ${settings.receiptFontFamily || 'monospace'} !important;
             line-height: 1.25 !important;
-            display: block !important;
           }
 
-          #thermal-print-area * {
-            visibility: visible !important;
+          body.printing-thermal #thermal-print-area .flex {
+            display: flex !important;
           }
 
-          #thermal-print-area .border-dashed,
-          #thermal-print-area .border-t,
-          #thermal-print-area .border-b {
+          body.printing-thermal #thermal-print-area .border-dashed,
+          body.printing-thermal #thermal-print-area .border-t,
+          body.printing-thermal #thermal-print-area .border-b {
             border-color: #000000 !important;
           }
 
-          #thermal-print-area div {
+          body.printing-thermal #thermal-print-area div {
             break-inside: avoid;
+          }
+
+          /* 3. REPORT / DOCUMENT MODE (When no thermal slip is active) */
+          body:not(.printing-thermal) main {
+            display: block !important;
+            width: 100% !important;
+            overflow: visible !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+
+          body:not(.printing-thermal) table {
+            width: 100% !important;
+            border-collapse: collapse !important;
+            color: #000000 !important;
+          }
+
+          body:not(.printing-thermal) th,
+          body:not(.printing-thermal) td {
+            color: #000000 !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+            padding: 6px 8px !important;
+          }
+
+          body:not(.printing-thermal) thead {
+            display: table-header-group !important;
+          }
+
+          body:not(.printing-thermal) tr {
+            break-inside: avoid !important;
           }
         }
       `}</style>
