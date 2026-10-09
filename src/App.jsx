@@ -7548,6 +7548,166 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </table>
                   </div>
                 </div>
+                
+                {/* 2. SALARY ADVANCES DISBURSED LEDGER */}
+                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs mt-6">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                        <Banknote className="h-4 w-4 text-amber-600" />
+                        Salary Advance Disbursements &amp; Recovery Ledger
+                      </h3>
+                      <p className="text-[10px] text-slate-400">
+                        Tracks advances issued to workers and the scheduled monthly payroll recovery
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200">
+                        Total Advances: {settings.currency} {(salaryAdvances || []).reduce((acc, a) => acc + (Number(a.amount) || 0), 0).toFixed(2)}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const firstStaff = staffList[0];
+                          setAdvanceForm({
+                            staffId: firstStaff ? firstStaff.id : '',
+                            period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                            amount: '',
+                            paymentMethod: 'CASH',
+                            reason: 'Emergency advance on salary',
+                            notes: ''
+                          });
+                          setIssueAdvanceModalOpen(true);
+                        }}
+                        className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>Issue Advance</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Voucher Ref</th>
+                          <th className="py-2.5 px-3">Date &amp; Time</th>
+                          <th className="py-2.5 px-3">Employee</th>
+                          <th className="py-2.5 px-3">Recovery Month</th>
+                          <th className="py-2.5 px-3">Method</th>
+                          <th className="py-2.5 px-3">Reason / Notes</th>
+                          <th className="py-2.5 px-3 text-right">Amount</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(!salaryAdvances || salaryAdvances.length === 0) ? (
+                          <tr>
+                            <td colSpan={9} className="py-8 text-center text-slate-400 italic">
+                              No salary advance disbursements recorded yet. Click &ldquo;Issue Advance&rdquo; to disburse funds.
+                            </td>
+                          </tr>
+                        ) : (
+                          salaryAdvances.map(adv => {
+                            // Check if this advance was already recovered on a settled payslip
+                            const isRecovered = payrollRecords.some(
+                              rec => rec.staffId === adv.staffId && rec.period === adv.period
+                            );
+
+                            return (
+                              <tr key={adv.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-3 px-3 font-mono font-bold text-slate-800">{adv.id}</td>
+                                <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
+                                  {adv.date} {adv.disbursedAt}
+                                </td>
+                                <td className="py-3 px-3">
+                                  <span className="font-bold text-slate-900 block">{adv.staffName}</span>
+                                  <span className="text-[10px] text-slate-400">{adv.role}</span>
+                                </td>
+                                <td className="py-3 px-3 font-mono font-bold text-amber-800 bg-amber-50/50">
+                                  {adv.period}
+                                </td>
+                                <td className="py-3 px-3">
+                                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                    adv.paymentMethod === 'CASH'
+                                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                      : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                                  }`}>
+                                    {adv.paymentMethod}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-slate-600 max-w-xs truncate" title={adv.notes || adv.reason}>
+                                  {adv.reason || adv.notes || 'Advance on wages'}
+                                </td>
+                                <td className="py-3 px-3 text-right font-mono font-black text-amber-900 text-sm">
+                                  {settings.currency} {Number(adv.amount).toFixed(2)}
+                                </td>
+                                <td className="py-3 px-3 text-center">
+                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                    isRecovered
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {isRecovered ? 'Deducted (Recovered)' : 'Pending Deduction'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Reprint Advance Voucher */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        triggerAutoPrint({
+                                          type: 'SALARY_ADVANCE_VOUCHER',
+                                          data: {
+                                            id: adv.id,
+                                            staffName: adv.staffName,
+                                            role: adv.role,
+                                            period: adv.period,
+                                            amount: adv.amount,
+                                            notes: adv.notes || adv.reason
+                                          }
+                                        }, `Reprint Advance Voucher: ${adv.staffName}`);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                                      title="Reprint Advance Voucher"
+                                    >
+                                      <Printer className="h-4 w-4" />
+                                    </button>
+
+                                    {/* Delete Advance (Admin only) */}
+                                    {currentUser.role === 'Administrator' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (window.confirm(`Delete advance voucher ${adv.id} (${settings.currency} ${adv.amount}) for ${adv.staffName}?`)) {
+                                            setSalaryAdvances(prev => prev.filter(a => a.id !== adv.id));
+                                            recordAuditLog(
+                                              'ADMIN_DELETE_SALARY_ADVANCE',
+                                              adv.id,
+                                              `Deleted advance of ${settings.currency} ${adv.amount} for ${adv.staffName} (${adv.period})`
+                                            );
+                                          }
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                        title="Delete Advance Record"
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -7653,13 +7813,19 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             {/* SUB-TAB 4: EMPLOYEE REGISTRY & BASE SALARIES */}
             {payrollSubTab === 'profiles' && (
               <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                  <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                    Employee Registry &amp; Wage Structures
-                  </h3>
-                  <p className="text-[10px] text-slate-400 mt-0.5">
-                      View configured employee profiles and statutory wage packages
+                <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Employee Registry, Wages &amp; Advances
+                    </h3>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      View configured employee profiles, base salary structures, and active unrecovered salary advances
                     </p>
+                  </div>
+
+                  <span className="text-xs font-mono font-bold text-slate-600 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200 self-start sm:self-auto">
+                    {staffList.length} Registered Staff
+                  </span>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -7668,34 +7834,124 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       <tr>
                         <th className="py-3 px-4">Employee</th>
                         <th className="py-3 px-4">Role</th>
+                        <th className="py-3 px-4 text-right">Base Salary</th>
+                        <th className="py-3 px-4 text-right">Pending Advances</th>
                         <th className="py-3 px-4">Contact</th>
                         <th className="py-3 px-4">NIC / National ID</th>
-                        <th className="py-3 px-4">Security PIN</th>
-                        <th className="py-3 px-4 text-right">Status</th>
+                        <th className="py-3 px-4 text-center">Status</th>
+                        <th className="py-3 px-4 text-right">Quick Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {staffList.map(member => (
-                        <tr key={member.id} className="hover:bg-slate-50">
-                          <td className="py-3 px-4">
-                            <span className="font-extrabold text-slate-900 block">{member.name}</span>
-                            <span className="text-[10px] text-slate-400 font-mono">{member.id}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="px-2 py-0.5 bg-orange-100 text-[#ff5500] rounded font-bold text-[10px]">
-                              {member.role}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-slate-600">{member.email}</td>
-                          <td className="py-3 px-4 font-mono text-slate-700">1992{member.pin}402V</td>
-                          <td className="py-3 px-4 font-mono text-slate-400">••••</td>
-                          <td className="py-3 px-4 text-right">
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
-                              Active
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
+                      {staffList.map(member => {
+                        // Calculate total unrecovered salary advances for this employee
+                        const unrecoveredAdvance = (salaryAdvances || [])
+                          .filter(adv => 
+                            adv.staffId === member.id && 
+                            adv.status !== 'REJECTED' &&
+                            !payrollRecords.some(r => r.staffId === member.id && r.period === adv.period)
+                          )
+                          .reduce((sum, a) => sum + (Number(a.amount) || 0), 0);
+
+                        return (
+                          <tr key={member.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-3 px-4">
+                              <span className="font-extrabold text-slate-900 block">{member.name}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{member.id}</span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 bg-orange-100 text-[#ff5500] rounded font-bold text-[10px]">
+                                {member.role}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                              {settings.currency} {(member.basicSalary ?? 35000).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-bold">
+                              {unrecoveredAdvance > 0 ? (
+                                <span className="text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 inline-block text-xs">
+                                  {settings.currency} {unrecoveredAdvance.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 text-[11px] font-normal">None</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-slate-600">{member.email}</td>
+                            <td className="py-3 px-4 font-mono text-slate-700">1992{member.pin}402V</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                                Active
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {/* Direct Advance Disbursement Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setAdvanceForm({
+                                      staffId: member.id,
+                                      period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                                      amount: '',
+                                      paymentMethod: 'CASH',
+                                      reason: 'Mid-month advance on salary',
+                                      notes: ''
+                                    });
+                                    setIssueAdvanceModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold rounded-lg text-[11px] flex items-center gap-1 transition-colors cursor-pointer border border-amber-200"
+                                  title="Disburse salary advance to this employee"
+                                >
+                                  <Banknote className="h-3 w-3" />
+                                  <span>Advance</span>
+                                </button>
+
+                                {/* Direct Issue Pay Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                                    const advancesForMonth = (salaryAdvances || [])
+                                      .filter(a => a.staffId === member.id && a.period === curPeriod && a.status !== 'REJECTED')
+                                      .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+
+                                    setPayrollInputForm({
+                                      staffId: member.id,
+                                      period: curPeriod,
+                                      epfEtfEnabled: member.epfEtfEnabled !== false,
+                                      basicSalary: member.basicSalary ?? 35000,
+                                      budgetaryAllowance: member.budgetaryAllowance ?? 2500,
+                                      otherAllowances: member.otherAllowances ?? 0,
+                                      serviceChargeBonus: Math.round((salesMetrics?.serviceCharge || 0) / Math.max(1, staffList.length)),
+                                      incentiveBonus: member.fixedBonus ?? 0,
+                                      overtimeHours: 0,
+                                      overtimeRate: member.overtimeRate ?? 250,
+                                      salaryAdvance: advancesForMonth,
+                                      otherDeductions: 0,
+                                      standardWorkingDays: 26,
+                                      workedDays: 26,
+                                      paidLeaves: 0,
+                                      unpaidLeaves: 0,
+                                      holidaysCount: 4,
+                                      shortShiftsCount: 0,
+                                      notes: `Standard wages for ${member.name}`
+                                    });
+                                    setEditingPayrollId(null);
+                                    setActiveTab('payroll');
+                                    setPayrollSubTab('payslips');
+                                    setProcessPayModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-[11px] flex items-center gap-1 transition-colors cursor-pointer border border-emerald-200"
+                                  title="Run monthly payslip for this employee"
+                                >
+                                  <Briefcase className="h-3 w-3" />
+                                  <span>Issue Pay</span>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
