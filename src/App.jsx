@@ -562,30 +562,48 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     incentiveBonus: 0,
     overtimeHours: 0,
     overtimeRate: 250,
-    salaryAdvance: 0, // <-- Added here
+    salaryAdvance: 0,
     otherDeductions: 0,
+    standardWorkingDays: 26,
+    workedDays: 26,
+    paidLeaves: 0,
+    unpaidLeaves: 0,
+    holidaysCount: 4,
+    shortShiftsCount: 0,
     notes: ''
   });
 
   // 3. Auto-fill payroll inputs AFTER payrollInputForm is defined
   useEffect(() => {
-    if (!payrollInputForm.staffId) return;
-    const staff = staffList.find(s => s.id === payrollInputForm.staffId);
-    if (!staff) return;
+    if (!payrollInputForm.staffId || !payrollInputForm.period || editingPayrollId) return;
 
-    // Only update if issuing a new payslip (do not overwrite when editing)
-    if (!editingPayrollId) {
-      setPayrollInputForm(prev => ({
-        ...prev,
-        basicSalary: staff.basicSalary ?? 35000,
-        budgetaryAllowance: staff.budgetaryAllowance ?? 2500,
-        otherAllowances: staff.otherAllowances ?? 0,
-        incentiveBonus: staff.fixedBonus ?? 0,
-        overtimeRate: staff.overtimeRate ?? 250,
-        epfEtfEnabled: staff.epfEtfEnabled !== false
-      }));
-    }
-  }, [payrollInputForm.staffId, staffList, editingPayrollId]);
+    // Filter attendance logs matching staff and selected YYYY-MM period
+    const relevantLogs = (attendanceLogs || []).filter(log => {
+      if (!log || log.staffId !== payrollInputForm.staffId) return false;
+      const lDate = log.date || (log.timestamp ? extractDateStr(log.timestamp) : '');
+      return lDate.startsWith(payrollInputForm.period);
+    });
+
+    const uniqueDates = new Set();
+    let totalOtHours = 0;
+    let shortShifts = 0;
+
+    relevantLogs.forEach(l => {
+      if (l.date) uniqueDates.add(l.date);
+      const hrs = Number(l.totalHours) || 0;
+      if (hrs > 0 && hrs < 5) shortShifts += 1;
+      if (hrs > 8) totalOtHours += (hrs - 8);
+    });
+
+    const autoWorkedDays = uniqueDates.size > 0 ? uniqueDates.size : 26;
+
+    setPayrollInputForm(prev => ({
+      ...prev,
+      workedDays: autoWorkedDays,
+      shortShiftsCount: shortShifts,
+      overtimeHours: Number(totalOtHours.toFixed(1))
+    }));
+  }, [payrollInputForm.staffId, payrollInputForm.period, attendanceLogs, editingPayrollId]);
 
   // Sequential Number Helpers
   const getNextOrderNumber = () => {
@@ -2347,8 +2365,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     incentiveBonus = 0,
     overtimeHours = 0,
     overtimeRate = 0,
-    salaryAdvance = 0, // <-- Added Salary Advance
-    otherDeductions = 0
+    salaryAdvance = 0,
+    otherDeductions = 0,
+    // Attendance & Leave Metrics
+    standardWorkingDays = 26,
+    workedDays = 26,
+    paidLeaves = 0,
+    unpaidLeaves = 0,
+    holidaysCount = 0,
+    shortShiftsCount = 0
   }) => {
     const basic = Number(basicSalary) || 0;
     const bra = Number(budgetaryAllowance) || 0;
@@ -2357,7 +2382,14 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     const bonus = Number(incentiveBonus) || 0;
     const ot = (Number(overtimeHours) || 0) * (Number(overtimeRate) || 0);
     const advance = Number(salaryAdvance) || 0;
-    const deductions = Number(otherDeductions) || 0;
+    const otherDed = Number(otherDeductions) || 0;
+
+    const stdDays = Math.max(1, Number(standardWorkingDays) || 26);
+    const unpdLeaves = Number(unpaidLeaves) || 0;
+
+    // Prorated daily rate for unpaid leaves deduction
+    const perDayBasicRate = Number((basic / stdDays).toFixed(2));
+    const unpaidLeaveDeduction = Number((perDayBasicRate * unpdLeaves).toFixed(2));
 
     // EPF Base Earnings (Basic + BRA + Allowances)
     const epfLiableEarnings = Number((basic + bra + allowances).toFixed(2));
@@ -2370,7 +2402,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
     // Gross, Deductions, and Net
     const grossEarnings = Number((basic + bra + allowances + pool + bonus + ot).toFixed(2));
-    const totalDeductions = Number((epfEmployee + advance + deductions).toFixed(2));
+    const totalDeductions = Number((epfEmployee + advance + unpaidLeaveDeduction + otherDed).toFixed(2));
     const netSalary = Number((grossEarnings - totalDeductions).toFixed(2));
     const costToCompany = Number((grossEarnings + epfEmployer + etfEmployer).toFixed(2));
 
@@ -2387,7 +2419,15 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       serviceChargeBonus: pool,
       incentiveBonus: bonus,
       overtimePay: ot,
-      salaryAdvance: advance, // <-- Exported in breakdown
+      salaryAdvance: advance,
+      unpaidLeaveDeduction,
+      perDayBasicRate,
+      standardWorkingDays: stdDays,
+      workedDays: Number(workedDays) || 0,
+      paidLeaves: Number(paidLeaves) || 0,
+      unpaidLeaves: unpdLeaves,
+      holidaysCount: Number(holidaysCount) || 0,
+      shortShiftsCount: Number(shortShiftsCount) || 0,
       grossEarnings,
       totalDeductions,
       netSalary,
@@ -6107,36 +6147,43 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
-                          {/* DIRECT RUN PAYROLL BUTTON */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
-                              setPayrollInputForm({
-                                staffId: member.id,
-                                period: curPeriod,
-                                epfEtfEnabled: member.epfEtfEnabled !== false,
-                                basicSalary: member.basicSalary ?? 35000,
-                                budgetaryAllowance: member.budgetaryAllowance ?? 2500,
-                                otherAllowances: member.otherAllowances ?? 0,
-                                serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
-                                incentiveBonus: member.fixedBonus ?? 0,
-                                overtimeHours: 0,
-                                overtimeRate: member.overtimeRate ?? 250,
-                                otherDeductions: 0,
-                                notes: `Standard wages for ${member.name}`
-                              });
-                              setEditingPayrollId(null);
-                              setActiveTab('payroll');
-                              setPayrollSubTab('payslips');
-                              setProcessPayModalOpen(true);
-                            }}
-                            className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Issue Pay Slip with this employee's defaults"
-                          >
-                            <Briefcase className="h-3 w-3" />
-                            <span>Issue Pay</span>
-                          </button>
+  {/* DIRECT RUN PAYROLL BUTTON */}
+  <button
+    type="button"
+    onClick={() => {
+      const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      setPayrollInputForm({
+        staffId: member.id,
+        period: curPeriod,
+        epfEtfEnabled: member.epfEtfEnabled !== false,
+        basicSalary: member.basicSalary ?? 35000,
+        budgetaryAllowance: member.budgetaryAllowance ?? 2500,
+        otherAllowances: member.otherAllowances ?? 0,
+        serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
+        incentiveBonus: member.fixedBonus ?? 0,
+        overtimeHours: 0,
+        overtimeRate: member.overtimeRate ?? 250,
+        salaryAdvance: 0,
+        otherDeductions: 0,
+        standardWorkingDays: 26,
+        workedDays: 26,
+        paidLeaves: 0,
+        unpaidLeaves: 0,
+        holidaysCount: 4,
+        shortShiftsCount: 0,
+        notes: `Standard wages for ${member.name}`
+      });
+      setEditingPayrollId(null);
+      setActiveTab('payroll');
+      setPayrollSubTab('payslips');
+      setProcessPayModalOpen(true);
+    }}
+    className="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-bold rounded-lg text-xs flex items-center gap-1 transition-colors cursor-pointer"
+    title="Issue Pay Slip with this employee's defaults"
+  >
+    <Briefcase className="h-3 w-3" />
+    <span>Issue Pay</span>
+  </button>
 
                           {/* EDIT PROFILE */}
                           <button
@@ -9903,6 +9950,36 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </span>
                   </div>
                 </div>
+                {/* Attendance & Shift Breakdown */}
+                {activePrintSlip.data.breakdown?.standardWorkingDays && (
+                  <div className="space-y-1 border-b border-dashed border-black pb-2 text-[10px]">
+                    <p className="font-bold uppercase">=== ATTENDANCE &amp; LEAVES ===</p>
+                    <div className="flex justify-between">
+                      <span>Standard / Worked Days:</span>
+                      <span className="font-bold">
+                        {activePrintSlip.data.breakdown.workedDays} / {activePrintSlip.data.breakdown.standardWorkingDays} Days
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Paid Leaves / Holidays:</span>
+                      <span>
+                        {activePrintSlip.data.breakdown.paidLeaves} Paid / {activePrintSlip.data.breakdown.holidaysCount} Holidays
+                      </span>
+                    </div>
+                    {Number(activePrintSlip.data.breakdown.shortShiftsCount) > 0 && (
+                      <div className="flex justify-between">
+                        <span>Short Shifts (&lt;5h):</span>
+                        <span>{activePrintSlip.data.breakdown.shortShiftsCount} Recorded</span>
+                      </div>
+                    )}
+                    {Number(activePrintSlip.data.breakdown.unpaidLeaves) > 0 && (
+                      <div className="flex justify-between font-bold text-rose-800">
+                        <span>Unpaid Leave Days:</span>
+                        <span>{activePrintSlip.data.breakdown.unpaidLeaves} Days</span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Earnings Section */}
                 <div className="space-y-1 border-b border-dashed border-black pb-2 text-[11px]">
@@ -9958,6 +10035,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         <span>EPF (Employee 8%):</span>
                         <span>-{settings.currency} {activePrintSlip.data.breakdown?.epfEmployee.toFixed(2)}</span>
                       </div>
+                      {Number(activePrintSlip.data.breakdown?.unpaidLeaveDeduction) > 0 && (
+                    <div className="flex justify-between font-bold text-rose-700">
+                      <span>Unpaid Leave ({activePrintSlip.data.breakdown.unpaidLeaves}d @ {settings.currency}{activePrintSlip.data.breakdown.perDayBasicRate}):</span>
+                      <span>-{settings.currency} {Number(activePrintSlip.data.breakdown.unpaidLeaveDeduction).toFixed(2)}</span>
+                    </div>
+                  )}
                     </>
                   ) : (
                     <div className="flex justify-between italic text-[10px] text-slate-600">
@@ -10004,7 +10087,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </div>
                   </div>
                 )}
-
+                
                 {/* Signatures */}
                 <div className="pt-3 text-[9px] flex justify-between">
                   <div className="text-center">
@@ -12066,6 +12149,93 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         <span>Exempt (No EPF)</span>
                       )}
                     </button>
+                  </div>
+                  {/* ATTENDANCE, WORKING DAYS & LEAVES (AUTO-SYNCED & MANUALLY ADJUSTABLE) */}
+                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                        Attendance, Leave &amp; Shift Register
+                      </span>
+                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        ⚡ Linked to Time Clock
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Standard Work Days</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="31"
+                          value={payrollInputForm.standardWorkingDays}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, standardWorkingDays: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Actual Worked Days</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="31"
+                          value={payrollInputForm.workedDays}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, workedDays: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-emerald-700"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 mb-1">Poya / Public Holidays</label>
+                        <input
+                          type="number"
+                          min="0"
+                          max="10"
+                          value={payrollInputForm.holidaysCount}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, holidaysCount: e.target.value }))}
+                          className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2.5 pt-1 border-t border-slate-200">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-600 mb-1">Allowed Paid Leaves</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={payrollInputForm.paidLeaves}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, paidLeaves: e.target.value }))}
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-rose-700 mb-1">Unpaid Leaves (Deducted)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={payrollInputForm.unpaidLeaves}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, unpaidLeaves: e.target.value }))}
+                          className="w-full px-2 py-1.5 bg-rose-50 border border-rose-300 rounded-lg text-xs font-mono font-bold text-rose-900"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-amber-700 mb-1">Short Shifts (&lt;5h)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={payrollInputForm.shortShiftsCount}
+                          onChange={e => setPayrollInputForm(prev => ({ ...prev, shortShiftsCount: e.target.value }))}
+                          className="w-full px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-amber-900"
+                        />
+                      </div>
+                    </div>
+
+                    {Number(breakdown.unpaidLeaveDeduction) > 0 && (
+                      <div className="p-2 bg-rose-50 border border-rose-200 rounded-xl text-[11px] text-rose-800 flex justify-between font-mono">
+                        <span>Unpaid Leave Deduction ({payrollInputForm.unpaidLeaves} days @ {settings.currency}{breakdown.perDayBasicRate}/day):</span>
+                        <span className="font-bold">-{settings.currency} {breakdown.unpaidLeaveDeduction.toFixed(2)}</span>
+                      </div>
+                    )}
                   </div>
 
                   {/* EARNINGS & ALLOWANCES */}
