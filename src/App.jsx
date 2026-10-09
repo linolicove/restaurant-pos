@@ -798,6 +798,8 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     role: 'Cashier',
     pin: '',
     email: '',
+    nicNumber: '', // <-- Added NIC Number
+    nicDate: '',   // <-- Added NIC Issue / Input Date
     basicSalary: 35000,
     budgetaryAllowance: 2500,
     otherAllowances: 0,
@@ -1317,6 +1319,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       pin: cleanPin,
       avatar: initials || 'ST',
       email: newStaffForm.email.trim() || `${newStaffForm.name.trim().toLowerCase().replace(/\s+/g, '')}@linolicove.me`,
+      nicNumber: (newStaffForm.nicNumber || '').trim().toUpperCase(),
+      nicDate: newStaffForm.nicDate || '',
       basicSalary: Number(newStaffForm.basicSalary) || 0,
       budgetaryAllowance: Number(newStaffForm.budgetaryAllowance) || 0,
       otherAllowances: Number(newStaffForm.otherAllowances) || 0,
@@ -8192,10 +8196,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {staffList.map(member => {
-                        // Calculate total unrecovered salary advances for this employee
+                        // Calculate unrecovered advances for this member
                         const unrecoveredAdvance = (salaryAdvances || [])
-                          .filter(adv => 
-                            adv.staffId === member.id && 
+                          .filter(adv =>
+                            adv.staffId === member.id &&
                             adv.status !== 'REJECTED' &&
                             !payrollRecords.some(r => r.staffId === member.id && r.period === adv.period)
                           )
@@ -8203,18 +8207,25 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                         return (
                           <tr key={member.id} className="hover:bg-slate-50 transition-colors">
+                            {/* Employee Name & ID */}
                             <td className="py-3 px-4">
                               <span className="font-extrabold text-slate-900 block">{member.name}</span>
                               <span className="text-[10px] text-slate-400 font-mono">{member.id}</span>
                             </td>
+
+                            {/* Role Badge */}
                             <td className="py-3 px-4">
                               <span className="px-2 py-0.5 bg-orange-100 text-[#ff5500] rounded font-bold text-[10px]">
                                 {member.role}
                               </span>
                             </td>
+
+                            {/* Base Salary */}
                             <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
                               {settings.currency} {(member.basicSalary ?? 35000).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </td>
+
+                            {/* Pending Advances */}
                             <td className="py-3 px-4 text-right font-mono font-bold">
                               {unrecoveredAdvance > 0 ? (
                                 <span className="text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 inline-block text-xs">
@@ -8224,16 +8235,33 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                 <span className="text-slate-400 text-[11px] font-normal">None</span>
                               )}
                             </td>
+
+                            {/* Contact */}
                             <td className="py-3 px-4 text-slate-600">{member.email}</td>
-                            <td className="py-3 px-4 font-mono text-slate-700">1992{member.pin}402V</td>
+
+                            {/* NIC / National ID & Issue Date */}
+                            <td className="py-3 px-4">
+                              <span className="font-mono font-bold text-slate-800 block">
+                                {member.nicNumber || `1992${member.pin}402V`}
+                              </span>
+                              {member.nicDate && (
+                                <span className="text-[10px] text-slate-400 font-mono block">
+                                  Issued: {member.nicDate}
+                                </span>
+                              )}
+                            </td>
+
+                            {/* Status */}
                             <td className="py-3 px-4 text-center">
                               <span className="px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
                                 Active
                               </span>
                             </td>
+
+                            {/* Quick Actions */}
                             <td className="py-3 px-4 text-right">
                               <div className="flex items-center justify-end gap-1.5">
-                                {/* Direct Advance Disbursement Button */}
+                                {/* Issue Advance */}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -8254,7 +8282,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                   <span>Advance</span>
                                 </button>
 
-                                {/* Direct Issue Pay Button */}
+                                {/* Issue Pay */}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -11583,6 +11611,34 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                 />
               </div>
+              {/* NIC / National ID & Issue Date */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  NIC / National ID Number *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={newStaffForm.nicNumber}
+                  onChange={e => setNewStaffForm(prev => ({ ...prev, nicNumber: e.target.value.toUpperCase() }))}
+                  placeholder="e.g. 199245102450 or 924510245V"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  NIC Issue / Input Date
+                </label>
+                <input
+                  type="date"
+                  value={newStaffForm.nicDate}
+                  onChange={e => setNewStaffForm(prev => ({ ...prev, nicDate: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800 focus:bg-white focus:outline-none focus:border-[#ff5500] cursor-pointer"
+                />
+              </div>
+            </div>
 
               {/* SALARY & COMPENSATION SECTION */}
               <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3">
