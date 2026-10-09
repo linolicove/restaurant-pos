@@ -513,6 +513,11 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [staffList, setStaffList] = usePersistentState('linoli_staff_list', INITIAL_STAFF);
   const [currentUser, setCurrentUser] = useState(INITIAL_STAFF[0]);
   const [inventory, setInventory] = usePersistentState('linoli_inventory', INITIAL_RAW_INVENTORY);
+  // Stock & Inventory View Filter States
+  const [stockCategoryFilter, setStockCategoryFilter] = useState('All');
+  const [stockSearchQuery, setStockSearchQuery] = useState('');
+  const [stockStatusFilter, setStockStatusFilter] = useState('ALL'); // 'ALL' | 'LOW' | 'OPTIMAL'
+  const [stockDateFilter, setStockDateFilter] = useState(getLocalDateStr());
   const [menuItems, setMenuItems] = usePersistentState('linoli_menu_items', INITIAL_MENU_ITEMS);
   const [floorTables, setFloorTables] = usePersistentState('linoli_floor_tables', INITIAL_FLOOR_TABLES);
   const [activeOrders, setActiveOrders] = usePersistentState('linoli_active_orders', []);
@@ -4820,7 +4825,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
         {/* VIEW 5: STOCK & RAW INVENTORY */}
         {activeTab === 'stock' && (
-          <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-black text-slate-900">Stock &amp; Raw Inventory Valuation</h2>
@@ -4830,13 +4835,13 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {/* 1. EXCEL EXPORT BUTTON */}
+                {/* 1. EXCEL EXPORT BUTTON (EXPORTS FILTERED VIEW) */}
                 <button
                   type="button"
                   onClick={() => {
-                    const list = Array.isArray(inventory) ? inventory : [];
+                    const list = Array.isArray(filteredInventory) ? filteredInventory : [];
                     if (list.length === 0) {
-                      alert('No raw inventory records available to export.');
+                      alert('No raw inventory records match the selected filters to export.');
                       return;
                     }
 
@@ -4859,10 +4864,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       };
                     });
 
-                    exportReportToExcel('Stock_Inventory_Valuation', exportRows, 'Stock_Inventory_Valuation');
+                    exportReportToExcel(`Stock_Inventory_${stockCategoryFilter}`, exportRows, 'Stock_Inventory');
                   }}
                   className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
-                  title="Export raw inventory list and valuation to Excel (.xlsx)"
+                  title="Export filtered raw inventory to Excel (.xlsx)"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Export Excel</span>
@@ -4901,7 +4906,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         }
 
                         if (!imported || imported.length === 0) {
-                          alert(`Could not extract raw material records from "${file.name}". Please ensure the file has columns: Raw Ingredient, Category, Remaining Stock, Reorder Threshold, and Unit Cost.`);
+                          alert(`Could not extract raw material records from "${file.name}".`);
                           return;
                         }
 
@@ -4931,7 +4936,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                           `Imported/updated ${imported.length} raw material records from ${file.name}`
                         );
 
-                        alert(`Successfully imported ${imported.length} raw inventory materials from ${file.name}! Inventory valuation has updated.`);
+                        alert(`Successfully imported ${imported.length} raw inventory materials from ${file.name}!`);
                       } catch (err) {
                         console.error('Inventory import failed:', err);
                         alert(`Failed to import file: ${err.message}`);
@@ -4984,185 +4989,322 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             </div>
 
-            {/* INVENTORY VALUATION KPI CARDS */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Stock Value</p>
-                  <span className="p-1.5 rounded-lg bg-orange-50 text-[#ff5500]">
-                    <DollarSign className="h-4 w-4" />
-                  </span>
+            {/* FILTER TOOLBAR: CATEGORY, DATE, STOCK STATUS, SEARCH */}
+            {(() => {
+              // Extract unique categories from current inventory
+              const availableCategories = Array.from(
+                new Set(['All', ...(Array.isArray(inventory) ? inventory.map(i => i.category || 'Dry Goods') : [])])
+              );
+
+              return (
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Category Selector */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">Category:</span>
+                      <select
+                        value={stockCategoryFilter}
+                        onChange={e => setStockCategoryFilter(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer py-0.5"
+                      >
+                        {availableCategories.map(cat => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Stock Alert Level Filter (All / Low Stock / Optimal) */}
+                    <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-0.5 rounded-xl">
+                      {[
+                        { id: 'ALL', label: 'All Items' },
+                        { id: 'LOW', label: 'Low Stock Only' },
+                        { id: 'OPTIMAL', label: 'Optimal Level' }
+                      ].map(btn => (
+                        <button
+                          key={btn.id}
+                          type="button"
+                          onClick={() => setStockStatusFilter(btn.id)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            stockStatusFilter === btn.id
+                              ? btn.id === 'LOW'
+                                ? 'bg-rose-600 text-white shadow-xs'
+                                : 'bg-slate-900 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* As-Of Date Filter */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                      <Calendar className="h-3.5 w-3.5 text-[#ff5500]" />
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">As of Date:</span>
+                      <input
+                        type="date"
+                        value={stockDateFilter}
+                        onChange={e => setStockDateFilter(e.target.value)}
+                        className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Search Bar */}
+                  <div className="relative w-full lg:w-64">
+                    <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={stockSearchQuery}
+                      onChange={e => setStockSearchQuery(e.target.value)}
+                      placeholder="Search ingredient by name or ID..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                    />
+                    {stockSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setStockSearchQuery('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
-                  {settings.currency} {inventoryValuation.totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1 font-medium">Total capital tied in current inventory</p>
-              </div>
+              );
+            })()}
 
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Tracked Ingredients</p>
-                  <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700">
-                    <Package className="h-4 w-4" />
-                  </span>
-                </div>
-                <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
-                  {inventoryValuation.totalItems} Items
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1 font-medium">Active Bill of Materials stock records</p>
-              </div>
+            {/* DYNAMIC FILTERING & DYNAMIC KPI METRICS */}
+            {(() => {
+              const list = Array.isArray(inventory) ? inventory : [];
 
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Reorder Alerts</p>
-                  <span className={`p-1.5 rounded-lg ${inventoryValuation.lowStockCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                    <AlertTriangle className="h-4 w-4" />
-                  </span>
-                </div>
-                <p className={`text-2xl font-black mt-2 font-mono ${inventoryValuation.lowStockCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
-                  {inventoryValuation.lowStockCount} Items Low
-                </p>
-                <p className="text-[11px] text-slate-500 mt-1 font-medium">Below configured threshold limit</p>
-              </div>
+              const filteredInventory = list.filter(item => {
+                if (!item) return false;
+                // Category match
+                const matchCategory = stockCategoryFilter === 'All' || item.category === stockCategoryFilter;
+                // Search query match
+                const query = stockSearchQuery.toLowerCase().trim();
+                const matchQuery = !query || item.name.toLowerCase().includes(query) || (item.id || '').toLowerCase().includes(query);
+                // Status match (Low vs Optimal)
+                const isLow = Number(item.stock) <= Number(item.threshold);
+                const matchStatus = 
+                  stockStatusFilter === 'ALL' ? true :
+                  stockStatusFilter === 'LOW' ? isLow : !isLow;
 
-              <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Top Category Asset</p>
-                  <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
-                    <BarChart3 className="h-4 w-4" />
-                  </span>
-                </div>
-                <p className="text-lg font-black text-slate-900 mt-2 truncate">
-                  {inventoryValuation.topCat}
-                </p>
-                <p className="text-[11px] font-mono font-bold text-indigo-600 mt-1">
-                  {settings.currency} {inventoryValuation.maxCatVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                </p>
-              </div>
-            </div>
+                return matchCategory && matchQuery && matchStatus;
+              });
 
-            {/* INVENTORY TABLE WITH UNIT COST & TOTAL ASSET VALUE */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-4">Raw Ingredient</th>
-                    <th className="py-3 px-4">Category</th>
-                    <th className="py-3 px-4">Remaining Stock</th>
-                    <th className="py-3 px-4">Reorder Threshold</th>
-                    <th className="py-3 px-4 text-right">Unit Cost</th>
-                    <th className="py-3 px-4 text-right">Total Valuation</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(!Array.isArray(inventory) || inventory.length === 0) ? (
-                    <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 italic">
-                        No raw inventory items registered yet. Click &ldquo;Add Material&rdquo; above to record ingredients.
-                      </td>
-                    </tr>
-                  ) : (
-                    inventory.map(ing => {
-                      if (!ing) return null;
-                      const stockNum = Number(ing.stock) || 0;
-                      const threshNum = Number(ing.threshold) || 0;
-                      const costNum = Number(ing.cost) || 0;
-                      const totalAssetVal = stockNum * costNum;
-                      const isLow = stockNum <= threshNum;
+              // Dynamic KPI metrics recalculated specifically for the active filter view
+              let dynamicTotalVal = 0;
+              let dynamicLowCount = 0;
+              const catTotals = {};
 
-                      return (
-                        <tr key={ing.id} className="hover:bg-slate-50/70">
-                          <td className="py-3 px-4">
-                            <p className="font-extrabold text-slate-900">{ing.name}</p>
-                            <span className="text-[10px] text-slate-400 font-mono">{ing.id}</span>
-                          </td>
-                          <td className="py-3 px-4">
-                            <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-bold">
-                              {ing.category || 'General'}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 font-mono font-bold text-slate-800">
-                            {stockNum} {ing.unit}
-                            {isLow && (
-                              <span className="ml-2 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[10px] rounded font-bold">
-                                Low
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-4 font-mono text-slate-400">{threshNum} {ing.unit}</td>
-                          <td className="py-3 px-4 text-right font-mono text-slate-600">
-                            {settings.currency} {costNum.toFixed(2)} / {ing.unit}
-                          </td>
-                          <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
-                            {settings.currency} {totalAssetVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-4 text-right">
-                            <div className="flex items-center justify-end gap-1.5">
-                              {/* Quick Restock / Intake */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setReceiveStockForm({
-                                    ingredientId: ing.id,
-                                    quantity: ing.unit === 'g' || ing.unit === 'ml' ? '1000' : '10',
-                                    supplier: 'Local Market',
-                                    invoiceRef: `REC-${Math.floor(100 + Math.random() * 900)}`,
-                                    newCost: costNum.toString()
-                                  });
-                                  setReceiveStockModalOpen(true);
-                                }}
-                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
-                                title="Intake / Receive Stock"
-                              >
-                                + Intake
-                              </button>
+              filteredInventory.forEach(item => {
+                const s = Number(item.stock) || 0;
+                const c = Number(item.cost) || 0;
+                const t = Number(item.threshold) || 0;
+                const val = s * c;
+                dynamicTotalVal += val;
+                if (s <= t) dynamicLowCount += 1;
+                const cat = item.category || 'General';
+                catTotals[cat] = (catTotals[cat] || 0) + val;
+              });
 
-                              {/* Edit Material */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingInventoryItem({ ...ing });
-                                  setEditInventoryModalOpen(true);
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                                title="Edit Material"
-                              >
-                                <Edit3 className="h-4 w-4" />
-                              </button>
+              let topCat = 'None';
+              let maxCatVal = 0;
+              Object.entries(catTotals).forEach(([cat, val]) => {
+                if (val > maxCatVal) {
+                  maxCatVal = val;
+                  topCat = cat;
+                }
+              });
 
-                              {/* Remove Material */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (window.confirm(`Are you sure you want to remove "${ing.name}" from inventory?`)) {
-                                    setInventory(prev => (prev || []).filter(item => item.id !== ing.id));
-                                    if (typeof recordAuditLog === 'function') {
-                                      recordAuditLog(
-                                        'INVENTORY_ITEM_DELETED',
-                                        ing.id,
-                                        `Deleted raw material "${ing.name}" (${stockNum} ${ing.unit} @ ${settings.currency} ${costNum.toFixed(2)}/${ing.unit})`
-                                      );
-                                    }
-                                  }
-                                }}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Remove Material"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </td>
+              return (
+                <>
+                  {/* INVENTORY VALUATION KPI CARDS (DYNAMICALLY FILTERED) */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Total Stock Value</p>
+                        <span className="p-1.5 rounded-lg bg-orange-50 text-[#ff5500]">
+                          <DollarSign className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+                        {settings.currency} {dynamicTotalVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                        {stockCategoryFilter === 'All' ? 'Total capital tied in inventory' : `Value for category: ${stockCategoryFilter}`}
+                      </p>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Tracked Ingredients</p>
+                        <span className="p-1.5 rounded-lg bg-slate-100 text-slate-700">
+                          <Package className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-2xl font-black text-slate-900 mt-2 font-mono">
+                        {filteredInventory.length} Items
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 font-medium">
+                        {filteredInventory.length === list.length ? 'Showing all inventory records' : `Filtered from ${list.length} total records`}
+                      </p>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Reorder Alerts</p>
+                        <span className={`p-1.5 rounded-lg ${dynamicLowCount > 0 ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                          <AlertTriangle className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className={`text-2xl font-black mt-2 font-mono ${dynamicLowCount > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                        {dynamicLowCount} Items Low
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 font-medium">Below configured threshold limit</p>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Top Category Asset</p>
+                        <span className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600">
+                          <BarChart3 className="h-4 w-4" />
+                        </span>
+                      </div>
+                      <p className="text-lg font-black text-slate-900 mt-2 truncate">
+                        {topCat}
+                      </p>
+                      <p className="text-[11px] font-mono font-bold text-indigo-600 mt-1">
+                        {settings.currency} {maxCatVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* INVENTORY TABLE WITH FILTERED DATA */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-3 px-4">Raw Ingredient</th>
+                          <th className="py-3 px-4">Category</th>
+                          <th className="py-3 px-4">Remaining Stock</th>
+                          <th className="py-3 px-4">Reorder Threshold</th>
+                          <th className="py-3 px-4 text-right">Unit Cost</th>
+                          <th className="py-3 px-4 text-right">Total Valuation</th>
+                          <th className="py-3 px-4 text-right">Actions</th>
                         </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredInventory.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-12 text-center text-slate-400 italic">
+                              No raw materials match the selected category &ldquo;{stockCategoryFilter}&rdquo; or filter criteria.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredInventory.map(ing => {
+                            const stockNum = Number(ing.stock) || 0;
+                            const threshNum = Number(ing.threshold) || 0;
+                            const costNum = Number(ing.cost) || 0;
+                            const totalAssetVal = stockNum * costNum;
+                            const isLow = stockNum <= threshNum;
+
+                            return (
+                              <tr key={ing.id} className="hover:bg-slate-50/70 transition-colors">
+                                <td className="py-3 px-4">
+                                  <p className="font-extrabold text-slate-900">{ing.name}</p>
+                                  <span className="text-[10px] text-slate-400 font-mono">{ing.id}</span>
+                                </td>
+                                <td className="py-3 px-4">
+                                  <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded text-[10px] font-bold">
+                                    {ing.category || 'General'}
+                                  </span>
+                                </td>
+                                <td className="py-3 px-4 font-mono font-bold text-slate-800">
+                                  {stockNum} {ing.unit}
+                                  {isLow && (
+                                    <span className="ml-2 px-1.5 py-0.5 bg-rose-100 text-rose-700 text-[10px] rounded font-bold">
+                                      Low
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 font-mono text-slate-400">{threshNum} {ing.unit}</td>
+                                <td className="py-3 px-4 text-right font-mono text-slate-600">
+                                  {settings.currency} {costNum.toFixed(2)} / {ing.unit}
+                                </td>
+                                <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
+                                  {settings.currency} {totalAssetVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="py-3 px-4 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    {/* Quick Restock / Intake */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReceiveStockForm({
+                                          ingredientId: ing.id,
+                                          quantity: ing.unit === 'g' || ing.unit === 'ml' ? '1000' : '10',
+                                          supplier: 'Local Market',
+                                          invoiceRef: `REC-${Math.floor(100 + Math.random() * 900)}`,
+                                          newCost: costNum.toString()
+                                        });
+                                        setReceiveStockModalOpen(true);
+                                      }}
+                                      className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                                      title="Intake / Receive Stock"
+                                    >
+                                      + Intake
+                                    </button>
+
+                                    {/* Edit Material */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditingInventoryItem({ ...ing });
+                                        setEditInventoryModalOpen(true);
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                      title="Edit Material"
+                                    >
+                                      <Edit3 className="h-4 w-4" />
+                                    </button>
+
+                                    {/* Remove Material */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (window.confirm(`Are you sure you want to remove "${ing.name}" from inventory?`)) {
+                                          setInventory(prev => (prev || []).filter(item => item.id !== ing.id));
+                                          recordAuditLog(
+                                            'INVENTORY_ITEM_DELETED',
+                                            ing.id,
+                                            `Deleted raw material "${ing.name}" (${stockNum} ${ing.unit} @ ${settings.currency} ${costNum.toFixed(2)}/${ing.unit})`
+                                          );
+                                        }
+                                      }}
+                                      className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Remove Material"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
-
         {/* VIEW 6: TABLE MANAGEMENT */}
         {activeTab === 'tables' && (
           <div className="flex-1 overflow-y-auto p-6 space-y-6">
