@@ -544,6 +544,11 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     notes: ''
   });
   const prevVendorBillsRef = useRef('');
+  // Vendor Bills Filter States
+  const [vendorBillStartDate, setVendorBillStartDate] = useState('');
+  const [vendorBillEndDate, setVendorBillEndDate] = useState('');
+  const [vendorBillCategoryFilter, setVendorBillCategoryFilter] = useState('All');
+  const [vendorBillStatusFilter, setVendorBillStatusFilter] = useState('ALL'); // 'ALL' | 'PAID' | 'UNPAID'
 
   const [accountingPeriod, setAccountingPeriod] = useState('ALL'); // 'ALL' | 'TODAY' | 'THIS_MONTH' | 'LAST_MONTH'
 
@@ -6435,17 +6440,17 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0">
-                {/* 1. EXCEL EXPORT BUTTON */}
+                {/* 1. EXCEL EXPORT BUTTON (EXPORTS FILTERED VIEW) */}
                 <button
                   type="button"
                   onClick={() => {
-                    const billsList = Array.isArray(vendorBills) ? vendorBills : [];
-                    if (billsList.length === 0) {
-                      alert('No vendor bills available to export.');
+                    const list = Array.isArray(filteredVendorBills) ? filteredVendorBills : [];
+                    if (list.length === 0) {
+                      alert('No vendor bills available for the selected filters.');
                       return;
                     }
 
-                    const exportRows = billsList.map(bill => ({
+                    const exportRows = list.map(bill => ({
                       'Invoice #': bill.invoiceNumber || bill.id,
                       'Bill Date': bill.billDate || 'N/A',
                       'Due Date': bill.dueDate || 'N/A',
@@ -6458,10 +6463,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       'Notes': bill.notes || ''
                     }));
 
-                    exportReportToExcel('Vendor_Bills_Accounts_Payable', exportRows, 'Vendor_Invoices');
+                    exportReportToExcel(`Vendor_Invoices_${vendorBillCategoryFilter}`, exportRows, 'Vendor_Invoices');
                   }}
                   className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
-                  title="Export Vendor Invoices to Excel (.xlsx)"
+                  title="Export filtered invoices to Excel (.xlsx)"
                 >
                   <Download className="h-3.5 w-3.5" />
                   <span>Export Excel</span>
@@ -6470,9 +6475,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 {/* 2. PDF / PRINT BUTTON */}
                 <button
                   type="button"
-                  onClick={() => {
-                    window.print();
-                  }}
+                  onClick={() => window.print()}
                   className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
                   title="Print or Save Vendor Bills as PDF"
                 >
@@ -6504,103 +6507,267 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </button>
               </div>
             </div>
-            
-            {/* KPI Cards */}
+
+            {/* FILTER TOOLBAR: DATE RANGE (BETWEEN DATES) & CATEGORY & STATUS */}
             {(() => {
-              const totalBills = vendorBills.reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
-              const paidBills = vendorBills.filter(b => b.paymentStatus === 'PAID').reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
-              const unpaidBills = vendorBills.filter(b => b.paymentStatus !== 'PAID').reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
+              const availableCategories = Array.from(
+                new Set(['All', ...(Array.isArray(vendorBills) ? vendorBills.map(b => b.category || 'General Supply') : [])])
+              );
 
               return (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Total Invoiced</span>
-                    <p className="text-2xl font-black font-mono text-slate-900 mt-1">{settings.currency} {totalBills.toFixed(2)}</p>
-                    <span className="text-[11px] text-slate-500">{vendorBills.length} recorded invoices</span>
+                <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {/* Date Range: Between Start and End */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                      <Calendar className="h-3.5 w-3.5 text-[#ff5500]" />
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">From:</span>
+                      <input
+                        type="date"
+                        value={vendorBillStartDate}
+                        onChange={e => setVendorBillStartDate(e.target.value)}
+                        className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                      />
+                      <span className="text-[11px] font-bold text-slate-500 uppercase ml-1">To:</span>
+                      <input
+                        type="date"
+                        value={vendorBillEndDate}
+                        onChange={e => setVendorBillEndDate(e.target.value)}
+                        className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Quick Date Presets */}
+                    <div className="flex items-center gap-1">
+                      {[
+                        { label: 'Today', start: getLocalDateStr(), end: getLocalDateStr() },
+                        { label: 'This Month', start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`, end: getLocalDateStr() },
+                        { label: 'All Dates', start: '', end: '' }
+                      ].map(p => (
+                        <button
+                          key={p.label}
+                          type="button"
+                          onClick={() => {
+                            setVendorBillStartDate(p.start);
+                            setVendorBillEndDate(p.end);
+                          }}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Category Dropdown Filter */}
+                    <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase">Category:</span>
+                      <select
+                        value={vendorBillCategoryFilter}
+                        onChange={e => setVendorBillCategoryFilter(e.target.value)}
+                        className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer py-0.5"
+                      >
+                        {availableCategories.map(cat => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Status Filter (All / Paid / Unpaid) */}
+                    <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 p-0.5 rounded-xl">
+                      {[
+                        { id: 'ALL', label: 'All Status' },
+                        { id: 'PAID', label: 'Paid Only' },
+                        { id: 'UNPAID', label: 'Unpaid Only' }
+                      ].map(btn => (
+                        <button
+                          key={btn.id}
+                          type="button"
+                          onClick={() => setVendorBillStatusFilter(btn.id)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                            vendorBillStatusFilter === btn.id
+                              ? btn.id === 'PAID'
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : btn.id === 'UNPAID'
+                                ? 'bg-rose-600 text-white shadow-xs'
+                                : 'bg-slate-900 text-white shadow-xs'
+                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                          }`}
+                        >
+                          {btn.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
-                  <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Paid Invoices (OPEX)</span>
-                    <p className="text-2xl font-black font-mono text-emerald-600 mt-1">{settings.currency} {paidBills.toFixed(2)}</p>
-                    <span className="text-[11px] text-slate-500">Linked to P&amp;L expenses</span>
-                  </div>
-
-                  <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
-                    <span className="text-[10px] font-black uppercase text-slate-400">Outstanding Accounts Payable</span>
-                    <p className="text-2xl font-black font-mono text-rose-600 mt-1">{settings.currency} {unpaidBills.toFixed(2)}</p>
-                    <span className="text-[11px] text-slate-500">Unsettled credit terms</span>
-                  </div>
+                  {/* Reset Filters Shortcut */}
+                  {(vendorBillStartDate || vendorBillEndDate || vendorBillCategoryFilter !== 'All' || vendorBillStatusFilter !== 'ALL') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setVendorBillStartDate('');
+                        setVendorBillEndDate('');
+                        setVendorBillCategoryFilter('All');
+                        setVendorBillStatusFilter('ALL');
+                      }}
+                      className="self-end xl:self-auto text-xs text-[#ff5500] hover:underline font-bold cursor-pointer"
+                    >
+                      Clear Filters
+                    </button>
+                  )}
                 </div>
               );
             })()}
 
-            {/* Invoices Table */}
-            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
-                  <tr>
-                    <th className="py-2.5 px-3">Invoice #</th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Vendor / Payee</th>
-                    <th className="py-2.5 px-3">Category</th>
-                    <th className="py-2.5 px-3">Payment Method</th>
-                    <th className="py-2.5 px-3 text-right">Amount</th>
-                    <th className="py-2.5 px-3 text-center">Status</th>
-                    <th className="py-2.5 px-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {vendorBills.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400 italic">
-                        No external invoices recorded yet. Click &ldquo;Record Vendor Bill&rdquo; to add distributor or utility bills.
-                      </td>
-                    </tr>
-                  ) : (
-                    vendorBills.map(bill => (
-                      <tr key={bill.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="py-3 px-3 font-mono font-bold text-slate-800">{bill.invoiceNumber || bill.id}</td>
-                        <td className="py-3 px-3 text-slate-500">{bill.billDate}</td>
-                        <td className="py-3 px-3 font-bold text-slate-900">{bill.vendorName}</td>
-                        <td className="py-3 px-3">
-                          <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-semibold text-slate-700">
-                            {bill.category}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 font-mono text-slate-600">{bill.paymentMethod}</td>
-                        <td className="py-3 px-3 text-right font-mono font-black text-slate-900">
-                          {settings.currency} {Number(bill.amount).toFixed(2)}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            bill.paymentStatus === 'PAID'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}>
-                            {bill.paymentStatus}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (window.confirm(`Delete invoice ${bill.invoiceNumber || bill.id} from ${bill.vendorName}?`)) {
-                                setVendorBills(prev => prev.filter(b => b.id !== bill.id));
-                                recordAuditLog('VENDOR_BILL_DELETED', bill.id, `Deleted invoice ${bill.invoiceNumber} for ${settings.currency} ${bill.amount}`);
-                              }
-                            }}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                            title="Delete Invoice"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            {/* DYNAMIC COMPUTATION: FILTERED BILLS & DYNAMIC KPIS */}
+            {(() => {
+              const allBills = Array.isArray(vendorBills) ? vendorBills : [];
+
+              const filteredVendorBills = allBills.filter(bill => {
+                if (!bill) return false;
+
+                // 1. Category Filter
+                const matchCategory = vendorBillCategoryFilter === 'All' || bill.category === vendorBillCategoryFilter;
+
+                // 2. Status Filter
+                const matchStatus =
+                  vendorBillStatusFilter === 'ALL' ? true :
+                  vendorBillStatusFilter === 'PAID' ? bill.paymentStatus === 'PAID' :
+                  bill.paymentStatus !== 'PAID';
+
+                // 3. Between Dates Filter
+                const bDate = extractDateStr(bill.billDate || bill.date) || String(bill.billDate || '');
+                if (vendorBillStartDate && bDate && bDate < vendorBillStartDate) return false;
+                if (vendorBillEndDate && bDate && bDate > vendorBillEndDate) return false;
+
+                return matchCategory && matchStatus;
+              });
+
+              // Dynamic KPI Calculations based on active filtered dataset
+              const totalInvoiced = filteredVendorBills.reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
+              const paidInvoiced = filteredVendorBills.filter(b => b.paymentStatus === 'PAID').reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
+              const unpaidInvoiced = filteredVendorBills.filter(b => b.paymentStatus !== 'PAID').reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
+
+              return (
+                <>
+                  {/* Dynamic KPI Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Total Invoiced</span>
+                      <p className="text-2xl font-black font-mono text-slate-900 mt-1">
+                        {settings.currency} {totalInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <span className="text-[11px] text-slate-500">{filteredVendorBills.length} filtered invoices</span>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Paid Invoices (OPEX)</span>
+                      <p className="text-2xl font-black font-mono text-emerald-600 mt-1">
+                        {settings.currency} {paidInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <span className="text-[11px] text-slate-500">Booked into operating expenses</span>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs">
+                      <span className="text-[10px] font-black uppercase text-slate-400">Outstanding Accounts Payable</span>
+                      <p className="text-2xl font-black font-mono text-rose-600 mt-1">
+                        {settings.currency} {unpaidInvoiced.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </p>
+                      <span className="text-[11px] text-slate-500">Unsettled vendor credit terms</span>
+                    </div>
+                  </div>
+
+                  {/* Filtered Invoices Table */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                        <tr>
+                          <th className="py-2.5 px-3">Invoice #</th>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Vendor / Payee</th>
+                          <th className="py-2.5 px-3">Category</th>
+                          <th className="py-2.5 px-3">Payment Method</th>
+                          <th className="py-2.5 px-3 text-right">Amount</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          <th className="py-2.5 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredVendorBills.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-12 text-center text-slate-400 italic">
+                              No vendor invoices match the selected date range or category filters.
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredVendorBills.map(bill => (
+                            <tr key={bill.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-3 px-3 font-mono font-bold text-slate-800">{bill.invoiceNumber || bill.id}</td>
+                              <td className="py-3 px-3 text-slate-500 whitespace-nowrap">{bill.billDate}</td>
+                              <td className="py-3 px-3 font-bold text-slate-900">{bill.vendorName}</td>
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-semibold text-slate-700">
+                                  {bill.category}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 font-mono text-slate-600">{bill.paymentMethod}</td>
+                              <td className="py-3 px-3 text-right font-mono font-black text-slate-900">
+                                {settings.currency} {Number(bill.amount).toFixed(2)}
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  bill.paymentStatus === 'PAID'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {bill.paymentStatus}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  {/* Toggle Paid / Unpaid Status */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const nextStatus = bill.paymentStatus === 'PAID' ? 'UNPAID' : 'PAID';
+                                      setVendorBills(prev => prev.map(b => b.id === bill.id ? { ...b, paymentStatus: nextStatus } : b));
+                                      recordAuditLog(
+                                        'VENDOR_BILL_STATUS_TOGGLED',
+                                        bill.id,
+                                        `Changed invoice ${bill.invoiceNumber} status to ${nextStatus}`
+                                      );
+                                    }}
+                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-[10px] font-bold cursor-pointer transition-colors"
+                                    title="Toggle Paid/Unpaid Status"
+                                  >
+                                    Mark {bill.paymentStatus === 'PAID' ? 'Unpaid' : 'Paid'}
+                                  </button>
+
+                                  {/* Delete Invoice */}
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (window.confirm(`Delete invoice ${bill.invoiceNumber || bill.id} from ${bill.vendorName}?`)) {
+                                        setVendorBills(prev => prev.filter(b => b.id !== bill.id));
+                                        recordAuditLog('VENDOR_BILL_DELETED', bill.id, `Deleted invoice ${bill.invoiceNumber} for ${settings.currency} ${bill.amount}`);
+                                      }
+                                    }}
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                    title="Delete Invoice"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              );
+            })()}
           </div>
         )}
 
