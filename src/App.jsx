@@ -547,6 +547,19 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
+
+  // Persistent collection for standalone advance disbursements
+  const [salaryAdvances, setSalaryAdvances] = usePersistentState('linoli_salary_advances', []);
+  const [issueAdvanceModalOpen, setIssueAdvanceModalOpen] = useState(false);
+  const [advanceForm, setAdvanceForm] = useState({
+    staffId: '',
+    period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+    amount: '',
+    paymentMethod: 'CASH', // 'CASH' | 'BANK_TRANSFER'
+    reason: 'Personal Advance',
+    notes: ''
+  });
+  const prevAdvancesRef = useRef('');
   
   // 1. Declare modal open state
   const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
@@ -577,7 +590,12 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   useEffect(() => {
     if (!payrollInputForm.staffId || !payrollInputForm.period || editingPayrollId) return;
 
-    // Filter attendance logs matching staff and selected YYYY-MM period
+    // 1. Calculate unrecovered advances issued for this staff & month
+    const totalAdvancesIssued = (salaryAdvances || [])
+      .filter(adv => adv.staffId === payrollInputForm.staffId && adv.period === payrollInputForm.period && adv.status !== 'REJECTED')
+      .reduce((sum, adv) => sum + (Number(adv.amount) || 0), 0);
+
+    // 2. Fetch biometric attendance days
     const relevantLogs = (attendanceLogs || []).filter(log => {
       if (!log || log.staffId !== payrollInputForm.staffId) return false;
       const lDate = log.date || (log.timestamp ? extractDateStr(log.timestamp) : '');
@@ -599,11 +617,12 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
 
     setPayrollInputForm(prev => ({
       ...prev,
+      salaryAdvance: totalAdvancesIssued, // <-- Pre-fills sum of advances issued
       workedDays: autoWorkedDays,
       shortShiftsCount: shortShifts,
       overtimeHours: Number(totalOtHours.toFixed(1))
     }));
-  }, [payrollInputForm.staffId, payrollInputForm.period, attendanceLogs, editingPayrollId]);
+  }, [payrollInputForm.staffId, payrollInputForm.period, attendanceLogs, salaryAdvances, editingPayrollId]);
 
   // Sequential Number Helpers
   const getNextOrderNumber = () => {
@@ -1061,6 +1080,17 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         localStorage.setItem('linoli_vendor_bills', serialized);
       }
     });
+    // Inbound listener for salary advances
+    const unsubAdvances = subscribeToCloud('salary_advances', (remoteAdv) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remoteAdv)) {
+        const serialized = JSON.stringify(remoteAdv);
+        if (prevAdvancesRef.current === serialized) return;
+        prevAdvancesRef.current = serialized;
+        setSalaryAdvances(remoteAdv);
+        localStorage.setItem('linoli_salary_advances', serialized);
+      }
+    });
     
     return () => {
       if (typeof unsubOrders === 'function') unsubOrders();
@@ -1077,6 +1107,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubPayroll === 'function') unsubPayroll();
       if (typeof unsubAccounting === 'function') unsubAccounting();
       if (typeof unsubVendorBills === 'function') unsubVendorBills();
+      if (typeof unsubAdvances === 'function') unsubAdvances();
     };
   }, []);
 
@@ -1233,6 +1264,18 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       }
     }
   }, [vendorBills]);
+
+  // Outbound broadcaster for salary advances
+  useEffect(() => {
+    if (!isCloudSynced.current) return;
+    if (salaryAdvances !== undefined) {
+      const current = JSON.stringify(salaryAdvances);
+      if (current !== prevAdvancesRef.current) {
+        prevAdvancesRef.current = current;
+        syncToCloud('salary_advances', salaryAdvances);
+      }
+    }
+  }, [salaryAdvances]);
 
   const handleCreateStaff = (e) => {
     e.preventDefault();
@@ -7016,7 +7059,29 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                {/* Export All Payroll & Time Clock History */}
+                {/* 1. ISSUE ADVANCE BUTTON */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    const firstStaff = staffList[0];
+                    setAdvanceForm({
+                      staffId: firstStaff ? firstStaff.id : '',
+                      period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                      amount: '',
+                      paymentMethod: 'CASH',
+                      reason: 'Emergency advance on salary',
+                      notes: ''
+                    });
+                    setIssueAdvanceModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                  title="Disburse cash or bank advance to employee"
+                >
+                  <Banknote className="h-4 w-4" />
+                  <span>Issue Advance</span>
+                </button>
+
+                {/* 2. EXPORT ARCHIVE BUTTON */}
                 <button
                   type="button"
                   onClick={() => {
@@ -7024,7 +7089,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       exportedAt: new Date().toISOString(),
                       restaurant: settings.restaurantName || 'Restaurant POS',
                       attendanceLogs,
-                      payrollRecords
+                      payrollRecords,
+                      salaryAdvances
                     };
                     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(exportPayload, null, 2));
                     const downloadAnchor = document.createElement('a');
@@ -7035,21 +7101,25 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     downloadAnchor.remove();
                   }}
                   className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition-colors shadow-xs"
-                  title="Download complete historical records forever"
                 >
                   <Download className="h-4 w-4 text-slate-600" />
                   <span>Export Archive</span>
                 </button>
 
-                {/* Process Pay Slip Modal Trigger */}
+                {/* 3. PROCESS PAY SLIP BUTTON */}
                 <button
                   type="button"
                   onClick={() => {
                     const firstStaff = staffList[0];
+                    const curPeriod = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                    const advancesForStaff = (salaryAdvances || [])
+                      .filter(a => a.staffId === firstStaff?.id && a.period === curPeriod && a.status !== 'REJECTED')
+                      .reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+
                     setEditingPayrollId(null);
                     setPayrollInputForm({
                       staffId: firstStaff ? firstStaff.id : '',
-                      period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                      period: curPeriod,
                       epfEtfEnabled: firstStaff ? firstStaff.epfEtfEnabled !== false : true,
                       basicSalary: firstStaff?.basicSalary ?? 35000,
                       budgetaryAllowance: firstStaff?.budgetaryAllowance ?? 2500,
@@ -7058,12 +7128,19 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       incentiveBonus: firstStaff?.fixedBonus ?? 0,
                       overtimeHours: 0,
                       overtimeRate: firstStaff?.overtimeRate ?? 250,
+                      salaryAdvance: advancesForStaff,
                       otherDeductions: 0,
+                      standardWorkingDays: 26,
+                      workedDays: 26,
+                      paidLeaves: 0,
+                      unpaidLeaves: 0,
+                      holidaysCount: 4,
+                      shortShiftsCount: 0,
                       notes: ''
                     });
                     setProcessPayModalOpen(true);
                   }}
-                  className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all"
+                  className="px-4 py-2 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs flex items-center gap-2 shadow-xs cursor-pointer transition-all active:scale-95"
                 >
                   <Plus className="h-4 w-4" />
                   <span>Process Pay Slip</span>
@@ -12473,6 +12550,200 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </form>
               );
             })()}
+          </div>
+        </div>
+      )}
+      
+      {/* MODAL: DISBURSE STANDALONE SALARY ADVANCE */}
+      {issueAdvanceModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 text-slate-900"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIssueAdvanceModalOpen(false);
+          }}
+        >
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-amber-600" />
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Issue Salary Advance Payment</h3>
+                  <p className="text-[10px] text-slate-500">Disburses advance funds and prints thermal receipt voucher</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIssueAdvanceModalOpen(false)}
+                className="text-slate-400 hover:text-slate-900 cursor-pointer p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const amt = parseFloat(advanceForm.amount);
+                const selectedEmployee = staffList.find(s => s.id === advanceForm.staffId) || staffList[0];
+
+                if (!selectedEmployee || isNaN(amt) || amt <= 0) {
+                  alert('Please select a valid employee and enter a positive advance amount.');
+                  return;
+                }
+
+                const advanceId = `ADV-${advanceForm.period.replace(/-/g, '')}-${selectedEmployee.id.slice(-4)}-${Date.now().toString().slice(-4)}`;
+
+                const newAdvanceRecord = {
+                  id: advanceId,
+                  staffId: selectedEmployee.id,
+                  staffName: selectedEmployee.name,
+                  role: selectedEmployee.role,
+                  period: advanceForm.period,
+                  amount: amt,
+                  paymentMethod: advanceForm.paymentMethod,
+                  reason: advanceForm.reason.trim() || 'Salary Advance',
+                  notes: advanceForm.notes.trim(),
+                  disbursedBy: currentUser.name,
+                  disbursedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                  date: getLocalDateStr(),
+                  timestamp: new Date().toISOString(),
+                  status: 'APPROVED'
+                };
+
+                // 1. Add to state
+                setSalaryAdvances(prev => [newAdvanceRecord, ...prev]);
+
+                // 2. Also register as a drawer cash out payout if paid via CASH
+                if (advanceForm.paymentMethod === 'CASH') {
+                  const cashOutEntry = {
+                    id: getNextCashOutNumber(),
+                    shiftId: currentShift.shiftId,
+                    amount: amt,
+                    category: 'Staff Advance',
+                    reason: `Salary advance for ${selectedEmployee.name} (${advanceForm.period})`,
+                    recipient: selectedEmployee.name,
+                    requestedBy: currentUser.name,
+                    requestedRole: currentUser.role,
+                    createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                    date: getLocalDateStr(),
+                    status: 'APPROVED',
+                    approvedBy: currentUser.name,
+                    approvedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                  };
+
+                  setCurrentShift(prev => ({
+                    ...prev,
+                    payouts: [cashOutEntry, ...(prev.payouts || [])]
+                  }));
+                  setExpenses(prev => [cashOutEntry, ...prev]);
+                }
+
+                // 3. Print the thermal advance voucher
+                triggerAutoPrint({
+                  type: 'SALARY_ADVANCE_VOUCHER',
+                  data: {
+                    id: newAdvanceRecord.id,
+                    staffName: newAdvanceRecord.staffName,
+                    role: newAdvanceRecord.role,
+                    period: newAdvanceRecord.period,
+                    amount: newAdvanceRecord.amount,
+                    notes: newAdvanceRecord.notes || newAdvanceRecord.reason
+                  }
+                }, `Advance Disbursed: ${selectedEmployee.name} (${settings.currency} ${amt.toFixed(2)})`);
+
+                // 4. Record audit trail
+                recordAuditLog(
+                  'SALARY_ADVANCE_ISSUED',
+                  newAdvanceRecord.id,
+                  `Issued ${settings.currency} ${amt.toFixed(2)} salary advance (${newAdvanceRecord.paymentMethod}) to ${selectedEmployee.name} for period ${advanceForm.period}`
+                );
+
+                setIssueAdvanceModalOpen(false);
+              }}
+              className="space-y-3.5"
+            >
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Select Employee *</label>
+                <select
+                  value={advanceForm.staffId}
+                  onChange={e => setAdvanceForm(prev => ({ ...prev, staffId: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                >
+                  {staffList.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.role}) - Base: {settings.currency} {s.basicSalary ?? 35000}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Advance Amount ({settings.currency}) *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    required
+                    value={advanceForm.amount}
+                    onChange={e => setAdvanceForm(prev => ({ ...prev, amount: e.target.value }))}
+                    placeholder="e.g. 10000.00"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Deduct On Month *</label>
+                  <input
+                    type="month"
+                    required
+                    value={advanceForm.period}
+                    onChange={e => setAdvanceForm(prev => ({ ...prev, period: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Payment Method</label>
+                <select
+                  value={advanceForm.paymentMethod}
+                  onChange={e => setAdvanceForm(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                >
+                  <option value="CASH">Cash Drawer Outflow (Deducts Float &amp; Pops Drawer)</option>
+                  <option value="BANK_TRANSFER">Direct Bank Transfer / Online</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason / Purpose</label>
+                <input
+                  type="text"
+                  value={advanceForm.reason}
+                  onChange={e => setAdvanceForm(prev => ({ ...prev, reason: e.target.value }))}
+                  placeholder="e.g. Medical emergency / travel advance"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIssueAdvanceModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                  <span>Disburse &amp; Print Slip</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
