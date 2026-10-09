@@ -551,6 +551,8 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [vendorBillStatusFilter, setVendorBillStatusFilter] = useState('ALL'); // 'ALL' | 'PAID' | 'UNPAID'
 
   const [accountingPeriod, setAccountingPeriod] = useState('ALL'); // 'ALL' | 'TODAY' | 'THIS_MONTH' | 'LAST_MONTH'
+  const [accountingStartDate, setAccountingStartDate] = useState('');
+  const [accountingEndDate, setAccountingEndDate] = useState('');
 
   // Persistent Attendance & Time Clock
   const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
@@ -6775,7 +6777,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         {activeTab === 'accounting' && (
           <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
             {/* Header & Date Range Filter */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-black text-slate-900 flex items-center gap-2">
                   <PieChart className="h-5 w-5 text-[#ff5500]" />
@@ -6786,9 +6788,35 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 </p>
               </div>
 
-              {/* Filter Buttons & Cloud Archive Action */}
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl shadow-xs text-xs font-bold">
+              {/* Filter Controls & Cloud Archive Action */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* 1. Between-Dates Selector */}
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-xs text-xs font-bold">
+                  <Calendar className="h-3.5 w-3.5 text-[#ff5500]" />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">From:</span>
+                  <input
+                    type="date"
+                    value={accountingStartDate}
+                    onChange={e => {
+                      setAccountingStartDate(e.target.value);
+                      setAccountingPeriod('CUSTOM');
+                    }}
+                    className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  />
+                  <span className="text-[11px] font-bold text-slate-500 uppercase ml-1">To:</span>
+                  <input
+                    type="date"
+                    value={accountingEndDate}
+                    onChange={e => {
+                      setAccountingEndDate(e.target.value);
+                      setAccountingPeriod('CUSTOM');
+                    }}
+                    className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                  />
+                </div>
+
+                {/* 2. Preset Filter Buttons */}
+                <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl shadow-xs text-xs font-bold">
                   {[
                     { id: 'ALL', label: 'All Time' },
                     { id: 'TODAY', label: 'Today' },
@@ -6797,7 +6825,21 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     <button
                       key={f.id}
                       type="button"
-                      onClick={() => setAccountingPeriod(f.id)}
+                      onClick={() => {
+                        setAccountingPeriod(f.id);
+                        if (f.id === 'TODAY') {
+                          setAccountingStartDate(getLocalDateStr());
+                          setAccountingEndDate(getLocalDateStr());
+                        } else if (f.id === 'THIS_MONTH') {
+                          const now = new Date();
+                          const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+                          setAccountingStartDate(startOfMonth);
+                          setAccountingEndDate(getLocalDateStr());
+                        } else {
+                          setAccountingStartDate('');
+                          setAccountingEndDate('');
+                        }
+                      }}
                       className={`px-3 py-1.5 rounded-lg cursor-pointer transition-colors ${
                         accountingPeriod === f.id
                           ? 'bg-[#ff5500] text-white shadow-xs'
@@ -6809,7 +6851,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   ))}
                 </div>
 
-                {/* Lock & Push Financial Snapshot to Firebase */}
+                {/* 3. Sync to Cloud Button */}
                 <button
                   type="button"
                   onClick={async () => {
@@ -6819,6 +6861,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     const snapshotRecord = {
                       id: `ACC-SNAP-${Date.now().toString().slice(-6)}`,
                       period: accountingPeriod,
+                      dateRange: { start: accountingStartDate, end: accountingEndDate },
                       timestamp: new Date().toLocaleString(),
                       savedBy: currentUser.name,
                       financials: {
@@ -6835,15 +6878,13 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         totalEmployerEpfEtf,
                         totalOperatingExpenses,
                         netProfit,
-                        profitMargin: `${netProfitMargin}%`,
+                        profitMargin: `${profitMargin}%`,
                         expenseCategories
                       }
                     };
 
-                    // 1. Sync live state to Firebase
                     await syncToCloud('latest_accounting_summary', snapshotRecord);
 
-                    // 2. Write permanent historical copy to Firebase pos_archives
                     if (typeof appendCloudArchive === 'function') {
                       await appendCloudArchive('accounting_periods', snapshotRecord);
                     }
@@ -6851,12 +6892,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     recordAuditLog(
                       'ACCOUNTING_SNAPSHOT_SAVED',
                       snapshotRecord.id,
-                      `Saved financial snapshot for ${accountingPeriod}. Net Revenue: ${settings.currency} ${netSalesRevenue.toFixed(2)}, Net Profit: ${settings.currency} ${netProfit.toFixed(2)}`
+                      `Saved snapshot for ${accountingPeriod} (${accountingStartDate || 'start'} to ${accountingEndDate || 'end'}). Net Profit: ${settings.currency} ${netProfit.toFixed(2)}`
                     );
 
                     setSettingsNotice({
                       title: 'Accounting Snapshot Synced',
-                      detail: `P&L statement for ${accountingPeriod} uploaded and permanently archived to Firebase.`
+                      detail: `P&L statement uploaded to Firebase.`
                     });
                     setTimeout(() => setSettingsNotice(null), 3500);
                   }}
@@ -6869,36 +6910,40 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               </div>
             </div>
 
-           {/* Calculations Engine (Mapped to transactions, BOM COGS, expenses, vendorBills & payroll) */}
+            {/* Calculations Engine (Connected to Custom Range, Invoices, COGS, Outflows, Bills & Payroll) */}
             {(() => {
               const todayStr = getLocalDateStr();
-              const currentMonthStr = todayStr.slice(0, 7); // 'YYYY-MM'
+              const currentMonthStr = todayStr.slice(0, 7);
 
-              // 1. Data Sources
               const salesData = Array.isArray(transactions) ? transactions : [];
               const expenseData = Array.isArray(expenses) ? expenses : (currentShift?.payouts || []);
               const externalBillsData = Array.isArray(vendorBills) ? vendorBills : [];
               const payrollData = Array.isArray(payrollRecords) ? payrollRecords : [];
 
-              // 2. Filter Sales / Revenue
-              const filteredSales = salesData.filter(inv => {
-                if (!inv) return false;
-                const dStr = extractDateStr(inv.date) || String(inv.date || '');
-                if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
-                if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
-                return true;
-              });
+              // Helper for Date Range checking
+              const matchesDateRange = (dateValue) => {
+                const dStr = extractDateStr(dateValue) || String(dateValue || '');
+                if (!dStr) return true;
 
-              // 3. Filter All Drawer Cash-Out Disbursements
+                if (accountingStartDate && dStr < accountingStartDate) return false;
+                if (accountingEndDate && dStr > accountingEndDate) return false;
+
+                if (!accountingStartDate && !accountingEndDate) {
+                  if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
+                  if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
+                }
+                return true;
+              };
+
+              // 1. Filter Sales / Revenue
+              const filteredSales = salesData.filter(inv => inv && matchesDateRange(inv.date));
+
+              // 2. Filter Drawer Cash-Out Disbursements
               const filteredDisbursements = expenseData.filter(v => {
                 if (!v || v.status === 'REJECTED') return false;
-                const dStr = extractDateStr(v.date || v.createdAt) || String(v.date || '');
-                if (accountingPeriod === 'TODAY') return dStr.startsWith(todayStr);
-                if (accountingPeriod === 'THIS_MONTH') return dStr.startsWith(currentMonthStr);
-                return true;
+                return matchesDateRange(v.date || v.createdAt);
               });
 
-              // Helper: Distinguish internal banking transfers from actual operating expenses
               const isBankingTransfer = (item) => {
                 const category = String(item.category || '').toLowerCase();
                 const reason = String(item.reason || '').toLowerCase();
@@ -6911,24 +6956,24 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 );
               };
 
-              // True drawer operational expenditures (vendor cash payouts, petty cash, supplies)
               const operationalExpenses = filteredDisbursements.filter(v => !isBankingTransfer(v));
-
-              // Internal drawer-to-safe / banking transfers (Non-OPEX asset movements)
               const bankingTransfers = filteredDisbursements.filter(v => isBankingTransfer(v));
 
-              // 4. Filter External Vendor Bills (Non-Drawer Invoices: Bank transfer, Cheque, Card)
+              // 3. Filter External Vendor Bills
               const filteredVendorBills = externalBillsData.filter(b => {
                 if (!b || b.paymentStatus !== 'PAID') return false;
-                const bDate = extractDateStr(b.billDate || b.date) || String(b.billDate || '');
-                if (accountingPeriod === 'TODAY') return bDate.startsWith(todayStr);
-                if (accountingPeriod === 'THIS_MONTH') return bDate.startsWith(currentMonthStr);
-                return true;
+                return matchesDateRange(b.billDate || b.date);
               });
 
-              // 5. Filter Payroll Disbursed
+              // 4. Filter Payroll Disbursed
               const filteredPayroll = payrollData.filter(p => {
                 if (!p) return false;
+                if (accountingStartDate || accountingEndDate) {
+                  const pDate = p.period ? `${p.period}-01` : (extractDateStr(p.processedAt) || '');
+                  if (accountingStartDate && pDate < accountingStartDate) return false;
+                  if (accountingEndDate && pDate > accountingEndDate) return false;
+                  return true;
+                }
                 if (accountingPeriod === 'THIS_MONTH') return p.period === currentMonthStr;
                 if (accountingPeriod === 'TODAY') return p.processedAt && String(p.processedAt).startsWith(todayStr);
                 return true;
@@ -6942,14 +6987,12 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const calculatedNet = grossSalesRevenue - totalDiscountsGiven;
               const netSalesRevenue = calculatedNet > 0 ? calculatedNet : filteredSales.reduce((acc, inv) => acc + (Number(inv.total) || 0), 0);
 
-              // --- COST OF GOODS SOLD (BOM INGREDIENT COST TRACKING) ---
+              // --- COST OF GOODS SOLD (BOM INGREDIENTS) ---
               let totalBOMCostOfGoodsSold = 0;
               filteredSales.forEach(inv => {
-                // If invoice already has cogs computed at settlement time, use it
                 if (Number(inv.cogs) > 0) {
                   totalBOMCostOfGoodsSold += Number(inv.cogs);
                 } else if (Array.isArray(inv.items)) {
-                  // Fallback: Recompute line-by-line from recipes (counts 0 if not configured)
                   inv.items.forEach(item => {
                     const dish = menuItems.find(m => m.id === item.id || m.name === item.name);
                     const qty = Number(item.qty) || 1;
@@ -6967,7 +7010,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 }
               });
 
-              // Gross Profit after raw food/beverage ingredient cost
               const grossProfit = netSalesRevenue - totalBOMCostOfGoodsSold;
               const grossMarginPercent = netSalesRevenue > 0 ? ((grossProfit / netSalesRevenue) * 100).toFixed(1) : 0;
 
@@ -6991,14 +7033,11 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
               const totalDrawerCashOutflow = totalOperationalCashOut + totalSafeDropBanking;
               const totalVendorBillsPaid = filteredVendorBills.reduce((acc, b) => acc + (Number(b.amount) || 0), 0);
 
-              // --- PAYROLL TOTALS ---
               const totalPayrollDisbursed = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.netSalary) || Number(p.netPay) || 0), 0);
               const totalEmployerEpfEtf = filteredPayroll.reduce((acc, p) => acc + (Number(p.breakdown?.epfEmployer) || 0) + (Number(p.breakdown?.etfEmployer) || 0), 0);
 
-              // --- TOTAL OPEX (Operating Expenses) ---
+              // --- TOTAL OPEX & NET PROFIT ---
               const totalOperatingExpenses = totalOperationalCashOut + totalVendorBillsPaid + totalPayrollDisbursed + totalEmployerEpfEtf;
-
-              // --- NET OPERATING PROFIT (Net Revenue - BOM COGS - OPEX) ---
               const netProfit = grossProfit - totalOperatingExpenses;
               const profitMargin = netSalesRevenue > 0 ? ((netProfit / netSalesRevenue) * 100).toFixed(1) : 0;
 
