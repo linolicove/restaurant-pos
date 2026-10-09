@@ -543,8 +543,8 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [accountingPeriod, setAccountingPeriod] = useState('ALL'); // 'ALL' | 'TODAY' | 'THIS_MONTH' | 'LAST_MONTH'
 
   // Persistent Attendance & Time Clock
-  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_archive_v1', []);
-  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_archive_v1', []);
+  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
+  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
   
@@ -869,6 +869,8 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const prevExpensesRef = useRef('');  // <-- ADD THIS
   const prevStaffRef = useRef('');
   const prevShiftRef = useRef('');
+  const prevAttendanceRef = useRef('');
+  const prevPayrollRef = useRef('');
   const prevDenomRef = useRef('');
   const [expenses, setExpenses] = useState(() => {
   try {
@@ -998,24 +1000,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         localStorage.setItem('linoli_denominations', serialized);
       }
     });
-
-    // 10. Receive attendance logs from cloud
-    const unsubAttendance = subscribeToCloud('attendance_logs', (remoteAtt) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remoteAtt)) {
-        setAttendanceLogs(remoteAtt);
-        localStorage.setItem('linoli_attendance_logs', JSON.stringify(remoteAtt));
-      }
-    });
-
-    // 11. Receive payroll records from cloud
-    const unsubPayroll = subscribeToCloud('payroll_records', (remotePay) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remotePay)) {
-        setPayrollRecords(remotePay);
-        localStorage.setItem('linoli_payroll_records', JSON.stringify(remotePay));
-      }
-    });
     
     // 12. Receive accounting settings from cloud
     const unsubAccounting = subscribeToCloud('accounting_settings', (remoteSettings) => {
@@ -1024,6 +1008,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         setAccountingPeriod(remoteSettings.period);
       }
     });
+
     // Receive external vendor bills & invoices from cloud
     const unsubVendorBills = subscribeToCloud('vendor_bills', (remoteBills) => {
       isCloudSynced.current = true;
@@ -1033,6 +1018,29 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         prevVendorBillsRef.current = serialized;
         setVendorBills(remoteBills);
         localStorage.setItem('linoli_vendor_bills', serialized);
+      }
+    });
+    // 10. Receive attendance logs from cloud in real time
+    const unsubAttendance = subscribeToCloud('attendance_logs', (remoteAtt) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remoteAtt)) {
+        const serialized = JSON.stringify(remoteAtt);
+        if (prevAttendanceRef.current === serialized) return;
+        prevAttendanceRef.current = serialized;
+        setAttendanceLogs(remoteAtt);
+        localStorage.setItem('linoli_attendance_logs', serialized);
+      }
+    });
+
+    // 11. Receive processed payroll records from cloud in real time
+    const unsubPayroll = subscribeToCloud('payroll_records', (remotePay) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remotePay)) {
+        const serialized = JSON.stringify(remotePay);
+        if (prevPayrollRef.current === serialized) return;
+        prevPayrollRef.current = serialized;
+        setPayrollRecords(remotePay);
+        localStorage.setItem('linoli_payroll_records', serialized);
       }
     });
     
@@ -1047,10 +1055,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubShift === 'function') unsubShift();
       if (typeof unsubStaff === 'function') unsubStaff();
       if (typeof unsubDenominations === 'function') unsubDenominations();
-      if (typeof unsubAttendance === 'function') unsubAttendance();
-      if (typeof unsubPayroll === 'function') unsubPayroll();
       if (typeof unsubAccounting === 'function') unsubAccounting();
       if (typeof unsubVendorBills === 'function') unsubVendorBills();
+      if (typeof unsubAttendance === 'function') unsubAttendance();
+      if (typeof unsubPayroll === 'function') unsubPayroll();
     };
   }, []);
 
@@ -1165,19 +1173,27 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     }
     }, [denominations]);
 
-    // Sync Attendance Archive Online & Offline
+   // Live Bidirectional Sync: Attendance Logs (pos_state/attendance_logs)
   useEffect(() => {
     if (!isCloudSynced.current) return;
-    if (Array.isArray(attendanceLogs) && attendanceLogs.length > 0) {
-      syncToCloud('attendance_logs_archive', attendanceLogs);
+    if (attendanceLogs !== undefined) {
+      const current = JSON.stringify(attendanceLogs);
+      if (current !== prevAttendanceRef.current) {
+        prevAttendanceRef.current = current;
+        syncToCloud('attendance_logs', attendanceLogs);
+      }
     }
   }, [attendanceLogs]);
 
-  // Sync Payroll Slips & Actions Online & Offline
+  // Live Bidirectional Sync: Processed Payroll Records (pos_state/payroll_records)
   useEffect(() => {
     if (!isCloudSynced.current) return;
-    if (Array.isArray(payrollRecords) && payrollRecords.length > 0) {
-      syncToCloud('payroll_records_archive', payrollRecords);
+    if (payrollRecords !== undefined) {
+      const current = JSON.stringify(payrollRecords);
+      if (current !== prevPayrollRef.current) {
+        prevPayrollRef.current = current;
+        syncToCloud('payroll_records', payrollRecords);
+      }
     }
   }, [payrollRecords]);
 
