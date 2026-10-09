@@ -543,8 +543,8 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [accountingPeriod, setAccountingPeriod] = useState('ALL'); // 'ALL' | 'TODAY' | 'THIS_MONTH' | 'LAST_MONTH'
 
   // Persistent Attendance & Time Clock
-  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
-  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
+  const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_archive_v1', []);
+  const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_archive_v1', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
   
@@ -557,7 +557,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
     epfEtfEnabled: true,
     basicSalary: 35000,
-    budgetaryAllowance: 0,
+    budgetaryAllowance: 2500,
     otherAllowances: 0,
     serviceChargeBonus: 0,
     incentiveBonus: 0,
@@ -578,7 +578,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
       setPayrollInputForm(prev => ({
         ...prev,
         basicSalary: staff.basicSalary ?? 35000,
-        budgetaryAllowance: staff.budgetaryAllowance ?? 0,
+        budgetaryAllowance: staff.budgetaryAllowance ?? 2500,
         otherAllowances: staff.otherAllowances ?? 0,
         incentiveBonus: staff.fixedBonus ?? 0,
         overtimeRate: staff.overtimeRate ?? 250,
@@ -750,7 +750,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     pin: '',
     email: '',
     basicSalary: 35000,
-    budgetaryAllowance: 0,
+    budgetaryAllowance: 2500,
     otherAllowances: 0,
     fixedBonus: 0,
     overtimeRate: 250,
@@ -869,8 +869,6 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const prevExpensesRef = useRef('');  // <-- ADD THIS
   const prevStaffRef = useRef('');
   const prevShiftRef = useRef('');
-  const prevAttendanceRef = useRef('');
-  const prevPayrollRef = useRef('');
   const prevDenomRef = useRef('');
   const [expenses, setExpenses] = useState(() => {
   try {
@@ -1000,6 +998,24 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         localStorage.setItem('linoli_denominations', serialized);
       }
     });
+
+    // 10. Receive attendance logs from cloud
+    const unsubAttendance = subscribeToCloud('attendance_logs', (remoteAtt) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remoteAtt)) {
+        setAttendanceLogs(remoteAtt);
+        localStorage.setItem('linoli_attendance_logs', JSON.stringify(remoteAtt));
+      }
+    });
+
+    // 11. Receive payroll records from cloud
+    const unsubPayroll = subscribeToCloud('payroll_records', (remotePay) => {
+      isCloudSynced.current = true;
+      if (Array.isArray(remotePay)) {
+        setPayrollRecords(remotePay);
+        localStorage.setItem('linoli_payroll_records', JSON.stringify(remotePay));
+      }
+    });
     
     // 12. Receive accounting settings from cloud
     const unsubAccounting = subscribeToCloud('accounting_settings', (remoteSettings) => {
@@ -1008,7 +1024,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         setAccountingPeriod(remoteSettings.period);
       }
     });
-
     // Receive external vendor bills & invoices from cloud
     const unsubVendorBills = subscribeToCloud('vendor_bills', (remoteBills) => {
       isCloudSynced.current = true;
@@ -1018,29 +1033,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         prevVendorBillsRef.current = serialized;
         setVendorBills(remoteBills);
         localStorage.setItem('linoli_vendor_bills', serialized);
-      }
-    });
-    // 10. Receive attendance logs from cloud in real time
-    const unsubAttendance = subscribeToCloud('attendance_logs', (remoteAtt) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remoteAtt)) {
-        const serialized = JSON.stringify(remoteAtt);
-        if (prevAttendanceRef.current === serialized) return;
-        prevAttendanceRef.current = serialized;
-        setAttendanceLogs(remoteAtt);
-        localStorage.setItem('linoli_attendance_logs', serialized);
-      }
-    });
-
-    // 11. Receive processed payroll records from cloud in real time
-    const unsubPayroll = subscribeToCloud('payroll_records', (remotePay) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remotePay)) {
-        const serialized = JSON.stringify(remotePay);
-        if (prevPayrollRef.current === serialized) return;
-        prevPayrollRef.current = serialized;
-        setPayrollRecords(remotePay);
-        localStorage.setItem('linoli_payroll_records', serialized);
       }
     });
     
@@ -1055,10 +1047,10 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubShift === 'function') unsubShift();
       if (typeof unsubStaff === 'function') unsubStaff();
       if (typeof unsubDenominations === 'function') unsubDenominations();
-      if (typeof unsubAccounting === 'function') unsubAccounting();
-      if (typeof unsubVendorBills === 'function') unsubVendorBills();
       if (typeof unsubAttendance === 'function') unsubAttendance();
       if (typeof unsubPayroll === 'function') unsubPayroll();
+      if (typeof unsubAccounting === 'function') unsubAccounting();
+      if (typeof unsubVendorBills === 'function') unsubVendorBills();
     };
   }, []);
 
@@ -1173,27 +1165,19 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     }
     }, [denominations]);
 
-   // Live Bidirectional Sync: Attendance Logs (pos_state/attendance_logs)
+    // Sync Attendance Archive Online & Offline
   useEffect(() => {
     if (!isCloudSynced.current) return;
-    if (attendanceLogs !== undefined) {
-      const current = JSON.stringify(attendanceLogs);
-      if (current !== prevAttendanceRef.current) {
-        prevAttendanceRef.current = current;
-        syncToCloud('attendance_logs', attendanceLogs);
-      }
+    if (Array.isArray(attendanceLogs) && attendanceLogs.length > 0) {
+      syncToCloud('attendance_logs_archive', attendanceLogs);
     }
   }, [attendanceLogs]);
 
-  // Live Bidirectional Sync: Processed Payroll Records (pos_state/payroll_records)
+  // Sync Payroll Slips & Actions Online & Offline
   useEffect(() => {
     if (!isCloudSynced.current) return;
-    if (payrollRecords !== undefined) {
-      const current = JSON.stringify(payrollRecords);
-      if (current !== prevPayrollRef.current) {
-        prevPayrollRef.current = current;
-        syncToCloud('payroll_records', payrollRecords);
-      }
+    if (Array.isArray(payrollRecords) && payrollRecords.length > 0) {
+      syncToCloud('payroll_records_archive', payrollRecords);
     }
   }, [payrollRecords]);
 
@@ -1272,7 +1256,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       pin: '',
       email: '',
       basicSalary: 35000,
-      budgetaryAllowance: 0,
+      budgetaryAllowance: 2500,
       otherAllowances: 0,
       fixedBonus: 0,
       overtimeRate: 250,
@@ -2353,7 +2337,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     otherDeductions = 0
   }) => {
     const basic = Number(basicSalary) || 0;
-    const ba = Number(budgetaryAllowance) || 0;
+    const bra = Number(budgetaryAllowance) || 0;
     const allowances = Number(otherAllowances) || 0;
     const pool = Number(serviceChargeBonus) || 0;
     const bonus = Number(incentiveBonus) || 0;
@@ -6039,7 +6023,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     pin: '',
                     email: '',
                     basicSalary: 35000,
-                    budgetaryAllowance: 0,
+                    budgetaryAllowance: 2500,
                     otherAllowances: 0,
                     fixedBonus: 0,
                     overtimeRate: 250,
@@ -6092,7 +6076,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       </td>
 
                       <td className="py-3 px-4 text-right font-mono text-slate-600">
-                        +{settings.currency} {((member.budgetaryAllowance ?? 0) + (member.otherAllowances ?? 0)).toFixed(2)}
+                        +{settings.currency} {((member.budgetaryAllowance ?? 2500) + (member.otherAllowances ?? 0)).toFixed(2)}
                       </td>
 
                       <td className="py-3 px-4 text-center">
@@ -6117,7 +6101,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                 period: curPeriod,
                                 epfEtfEnabled: member.epfEtfEnabled !== false,
                                 basicSalary: member.basicSalary ?? 35000,
-                                budgetaryAllowance: member.budgetaryAllowance ?? 0,
+                                budgetaryAllowance: member.budgetaryAllowance ?? 2500,
                                 otherAllowances: member.otherAllowances ?? 0,
                                 serviceChargeBonus: Math.round((salesMetrics.serviceCharge || 0) / Math.max(1, staffList.length)),
                                 incentiveBonus: member.fixedBonus ?? 0,
@@ -6149,7 +6133,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                 pin: member.pin,
                                 email: member.email || '',
                                 basicSalary: member.basicSalary ?? 35000,
-                                budgetaryAllowance: member.budgetaryAllowance ?? 0,
+                                budgetaryAllowance: member.budgetaryAllowance ?? 2500,
                                 otherAllowances: member.otherAllowances ?? 0,
                                 fixedBonus: member.fixedBonus ?? 0,
                                 overtimeRate: member.overtimeRate ?? 250,
@@ -7005,7 +6989,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                       period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
                       epfEtfEnabled: firstStaff ? firstStaff.epfEtfEnabled !== false : true,
                       basicSalary: firstStaff?.basicSalary ?? 35000,
-                      budgetaryAllowance: firstStaff?.budgetaryAllowance ?? 0,
+                      budgetaryAllowance: firstStaff?.budgetaryAllowance ?? 2500,
                       otherAllowances: firstStaff?.otherAllowances ?? 0,
                       serviceChargeBonus: Math.round((salesMetrics?.serviceCharge || 0) / Math.max(1, staffList.length)),
                       incentiveBonus: firstStaff?.fixedBonus ?? 0,
@@ -7343,7 +7327,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                                             period: rec.period,
                                             epfEtfEnabled: rec.breakdown?.epfEtfEnabled !== false,
                                             basicSalary: rec.breakdown?.basic || 35000,
-                                            budgetaryAllowance: rec.breakdown?.budgetaryAllowance || 0,
+                                            budgetaryAllowance: rec.breakdown?.bra || 2500,
                                             otherAllowances: rec.breakdown?.allowances || 0,
                                             serviceChargeBonus: rec.breakdown?.serviceChargeBonus || 0,
                                             incentiveBonus: rec.breakdown?.incentiveBonus || 0,
@@ -9882,8 +9866,8 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     <span>{settings.currency} {activePrintSlip.data.breakdown?.basic.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Salary Advances:</span>
-                    <span>+{settings.currency} {activePrintSlip.data.breakdown?.budgetaryAllowance.toFixed(2)}</span>
+                    <span>Budgetary Allowance (BRA):</span>
+                    <span>+{settings.currency} {activePrintSlip.data.breakdown?.bra.toFixed(2)}</span>
                   </div>
                   {activePrintSlip.data.breakdown?.allowances > 0 && (
                     <div className="flex justify-between">
@@ -10755,7 +10739,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Salary Advances</label>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">Budgetary Relief (BRA)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -11921,7 +11905,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                             ...prev,
                             staffId: targetId,
                             basicSalary: staff?.basicSalary ?? 35000,
-                            budgetaryAllowance: staff?.budgetaryAllowance ?? 0,
+                            budgetaryAllowance: staff?.budgetaryAllowance ?? 2500,
                             otherAllowances: staff?.otherAllowances ?? 0,
                             incentiveBonus: staff?.fixedBonus ?? 0,
                             overtimeRate: staff?.overtimeRate ?? 250,
@@ -12002,7 +11986,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         />
                       </div>
                       <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Salary Advances</label>
+                        <label className="block text-[11px] font-bold text-slate-600 mb-1">Budgetary Relief (BRA)</label>
                         <input
                           type="number"
                           step="0.01"
