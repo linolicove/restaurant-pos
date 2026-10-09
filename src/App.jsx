@@ -4618,52 +4618,52 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   <table className="w-full text-left text-xs">
                     <thead className="text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
                       <tr>
-                        <th className="py-2.5">Invoice #</th>
-                        <th className="py-2.5">Date &amp; Time</th>
-                        <th className="py-2.5">Table</th>
-                        <th className="py-2.5">Cashier</th>
-                        <th className="py-2.5">Method</th>
-                        <th className="py-2.5 text-right">Subtotal</th>
-                        <th className="py-2.5 text-right">Grand Total</th>
-                        {currentUser.role === 'Administrator' && (
-                          <th className="py-2.5 text-right">Admin Action</th>
-                        )}
+                        <th className="py-2.5 px-3">Invoice #</th>
+                        <th className="py-2.5 px-3">Date &amp; Time</th>
+                        <th className="py-2.5 px-3">Table</th>
+                        <th className="py-2.5 px-3">Cashier</th>
+                        <th className="py-2.5 px-3">Method</th>
+                        <th className="py-2.5 px-3 text-right">Subtotal</th>
+                        <th className="py-2.5 px-3 text-right">Grand Total</th>
+                        <th className="py-2.5 px-3 text-right">Print Action</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {filteredTransactions.length === 0 ? (
                         <tr>
-                          <td colSpan={currentUser.role === 'Administrator' ? 8 : 7} className="py-4 text-center text-slate-400 italic">No transactions recorded.</td>
+                          <td colSpan={8} className="py-6 text-center text-slate-400 italic">No transactions recorded in this period.</td>
                         </tr>
                       ) : (
                         filteredTransactions.map(t => (
-                          <tr key={t.invoiceNo} className="hover:bg-slate-50">
-                            <td className="py-3 font-mono font-bold text-slate-800">{t.invoiceNo}</td>
-                            <td className="py-3 text-slate-500">{t.date}</td>
-                            <td className="py-3 font-semibold text-slate-900">{t.table}</td>
-                            <td className="py-3 text-slate-600">{t.cashier}</td>
-                            <td className="py-3">
+                          <tr key={t.invoiceNo} className="hover:bg-slate-50 transition-colors">
+                            <td className="py-3 px-3 font-mono font-bold text-slate-800">{t.invoiceNo}</td>
+                            <td className="py-3 px-3 text-slate-500 whitespace-nowrap">{t.date}</td>
+                            <td className="py-3 px-3 font-semibold text-slate-900">{t.table}</td>
+                            <td className="py-3 px-3 text-slate-600">{t.cashier}</td>
+                            <td className="py-3 px-3">
                               <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-bold text-slate-700">
                                 {t.paymentMethod}
                               </span>
                             </td>
-                            <td className="py-3 text-right font-mono">{settings.currency} {t.subtotal.toFixed(2)}</td>
-                            <td className="py-3 text-right font-mono font-black text-slate-900">{settings.currency} {t.total.toFixed(2)}</td>
-                            {currentUser.role === 'Administrator' && (
-                              <td className="py-3 text-right">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setTransactions(prev => prev.filter(inv => inv.invoiceNo !== t.invoiceNo));
-                                    recordAuditLog('ADMIN_DELETE_TRANSACTION', t.invoiceNo, `Admin deleted invoice ${t.invoiceNo} for ${settings.currency} ${t.total.toFixed(2)}`);
-                                  }}
-                                  className="text-slate-400 hover:text-rose-600 p-1 cursor-pointer"
-                                  title="Admin Delete Transaction"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              </td>
-                            )}
+                            <td className="py-3 px-3 text-right font-mono text-slate-600">{settings.currency} {t.subtotal.toFixed(2)}</td>
+                            <td className="py-3 px-3 text-right font-mono font-black text-slate-900">{settings.currency} {t.total.toFixed(2)}</td>
+                            <td className="py-3 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  triggerAutoPrint({
+                                    type: 'FINAL_BILL',
+                                    data: t
+                                  }, `Reprint Invoice #${t.invoiceNo}`);
+                                  recordAuditLog('INVOICE_REPRINTED', t.invoiceNo, `Invoice #${t.invoiceNo} reprinted by ${currentUser.name}`);
+                                }}
+                                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold rounded-lg text-[11px] inline-flex items-center gap-1.5 transition-colors cursor-pointer shadow-xs active:scale-95"
+                                title="Reprint Official Tax Invoice Slip"
+                              >
+                                <Printer className="h-3.5 w-3.5 text-[#ff5500]" />
+                                <span>Reprint</span>
+                              </button>
+                            </td>
                           </tr>
                         ))
                       )}
