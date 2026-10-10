@@ -566,6 +566,11 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     notes: 'Missed punch added by supervisor'
   });
   const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
+  // Payroll & Advances Filter States
+  const [payrollStartDate, setPayrollStartDate] = useState('');
+  const [payrollEndDate, setPayrollEndDate] = useState('');
+  const [payrollStaffFilter, setPayrollStaffFilter] = useState('ALL');
+  const [payrollSearchName, setPayrollSearchName] = useState('');
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
 
@@ -7798,342 +7803,481 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
             )}
 
             {/* SUB-TAB 2: PAYROLL RECORDS & PAY SLIPS */}
-            {payrollSubTab === 'payslips' && (
-              <div className="space-y-6">
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
-                        Processed Salary &amp; Wage Slips
-                      </h3>
-                      <p className="text-[10px] text-slate-400">Includes Basic, Allowances, EPF 8% &amp; Service Gratuity pool</p>
+            {payrollSubTab === 'payslips' && (() => {
+              // 1. Date Range matching helper
+              const matchesDateRange = (rec) => {
+                if (!payrollStartDate && !payrollEndDate) return true;
+                let dStr = extractDateStr(rec.date || rec.processedAt) || '';
+                if (!dStr && rec.period) {
+                  dStr = `${rec.period}-01`;
+                }
+                if (payrollStartDate && dStr && dStr < payrollStartDate) return false;
+                if (payrollEndDate && dStr && dStr > payrollEndDate) return false;
+                return true;
+              };
+
+              // 2. Staff Dropdown & Search matching helper
+              const matchesStaff = (staffId, staffName) => {
+                const sName = (staffName || '').toLowerCase();
+                const query = (payrollSearchName || '').trim().toLowerCase();
+                const matchesDropdown = !payrollStaffFilter || payrollStaffFilter === 'ALL' || staffId === payrollStaffFilter;
+                const matchesSearch = !query || sName.includes(query);
+                return matchesDropdown && matchesSearch;
+              };
+
+              // Filtered Datasets
+              const filteredPayrollRecords = (payrollRecords || []).filter(rec =>
+                rec && matchesDateRange(rec) && matchesStaff(rec.staffId, rec.staffName)
+              );
+
+              const filteredSalaryAdvances = (salaryAdvances || []).filter(adv =>
+                adv && matchesDateRange(adv) && matchesStaff(adv.staffId, adv.staffName)
+              );
+
+              const totalFilteredAdvances = filteredSalaryAdvances.reduce((acc, a) => acc + (Number(a.amount) || 0), 0);
+
+              return (
+                <div className="space-y-6">
+                  {/* FILTER TOOLBAR: IN-BETWEEN DATES & BY NAME */}
+                  <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-xs flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2.5">
+                      {/* In-Between Dates Filter */}
+                      <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1 text-xs">
+                        <Calendar className="h-3.5 w-3.5 text-[#ff5500]" />
+                        <span className="text-[11px] font-bold text-slate-500 uppercase">From:</span>
+                        <input
+                          type="date"
+                          value={payrollStartDate}
+                          onChange={e => setPayrollStartDate(e.target.value)}
+                          className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                        />
+                        <span className="text-[11px] font-bold text-slate-500 uppercase ml-1">To:</span>
+                        <input
+                          type="date"
+                          value={payrollEndDate}
+                          onChange={e => setPayrollEndDate(e.target.value)}
+                          className="bg-transparent text-xs font-mono font-bold text-slate-800 focus:outline-none cursor-pointer"
+                        />
+                      </div>
+
+                      {/* Quick Presets */}
+                      <div className="flex items-center gap-1">
+                        {[
+                          { label: 'This Month', start: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`, end: getLocalDateStr() },
+                          { label: 'All Dates', start: '', end: '' }
+                        ].map(p => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={() => {
+                              setPayrollStartDate(p.start);
+                              setPayrollEndDate(p.end);
+                            }}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg cursor-pointer transition-colors"
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Employee Dropdown Filter */}
+                      <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase">Employee:</span>
+                        <select
+                          value={payrollStaffFilter}
+                          onChange={e => setPayrollStaffFilter(e.target.value)}
+                          className="bg-transparent text-xs font-bold text-slate-900 focus:outline-none cursor-pointer py-0.5"
+                        >
+                          <option value="ALL">All Employees</option>
+                          {staffList.map(s => (
+                            <option key={s.id} value={s.id}>
+                              {s.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     </div>
-                    <span className="text-xs font-mono text-slate-600 font-bold">{payrollRecords.length} Slips</span>
+
+                    {/* Employee Name Instant Search */}
+                    <div className="flex items-center gap-2">
+                      <div className="relative w-full xl:w-56">
+                        <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                          type="text"
+                          value={payrollSearchName}
+                          onChange={e => setPayrollSearchName(e.target.value)}
+                          placeholder="Search staff name..."
+                          className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder-slate-400 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                        />
+                        {payrollSearchName && (
+                          <button
+                            type="button"
+                            onClick={() => setPayrollSearchName('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Clear Filters */}
+                      {(payrollStartDate || payrollEndDate || (payrollStaffFilter && payrollStaffFilter !== 'ALL') || payrollSearchName) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPayrollStartDate('');
+                            setPayrollEndDate('');
+                            setPayrollStaffFilter('ALL');
+                            setPayrollSearchName('');
+                          }}
+                          className="text-xs text-[#ff5500] hover:underline font-bold cursor-pointer whitespace-nowrap"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
-                        <tr>
-                          <th className="py-2.5 px-3">Slip ID</th>
-                          <th className="py-2.5 px-3">Employee</th>
-                          <th className="py-2.5 px-3">Period</th>
-                          <th className="py-2.5 px-3 text-right">Basic + Allowances</th>
-                          <th className="py-2.5 px-3 text-right">EPF Base</th>
-                          <th className="py-2.5 px-3 text-right text-rose-600">EPF 8%</th>
-                          <th className="py-2.5 px-3 text-right text-amber-700">Advance</th>
-                          <th className="py-2.5 px-3 text-right text-emerald-600">Service Pool</th>
-                          <th className="py-2.5 px-3 text-right font-black">Net Take-Home</th>
-                          <th className="py-2.5 px-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {payrollRecords.length === 0 ? (
-                          <tr>
-                            <td colSpan={9} className="py-8 text-center text-slate-400 italic">
-                              No payroll records processed yet. Click &ldquo;Process Pay Slip&rdquo; above.
-                            </td>
-                          </tr>
-                        ) : (
-                          payrollRecords.map(rec => {
-                            const canManage = currentUser.role === 'Administrator' || currentUser.role === 'Manager';
+                  {/* 1. PROCESSED SALARY & WAGE SLIPS */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
+                    <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                          Processed Salary &amp; Wage Slips
+                        </h3>
+                        <p className="text-[10px] text-slate-400">Includes Basic, Allowances, EPF 8% &amp; Service Gratuity pool</p>
+                      </div>
+                      <span className="text-xs font-mono text-slate-600 font-bold">{filteredPayrollRecords.length} Slips</span>
+                    </div>
 
-                            return (
-                              <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-3 px-3 font-mono font-bold text-slate-800">{rec.id}</td>
-                                <td className="py-3 px-3">
-                                  <span className="font-bold text-slate-900 block">{rec.staffName}</span>
-                                  <span className="text-[10px] text-slate-400">{rec.role}</span>
-                                </td>
-                                <td className="py-3 px-3 font-mono font-bold text-slate-700">{rec.period}</td>
-                                <td className="py-3 px-3 text-right font-mono">
-                                  {settings.currency} {((rec.breakdown?.basic || 0) + (rec.breakdown?.bra || 0) + (rec.breakdown?.allowances || 0)).toFixed(2)}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
-                                  {rec.breakdown?.epfEtfEnabled !== false 
-                                    ? `${settings.currency} ${(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}`
-                                    : <span className="text-slate-400 italic text-[10px]">Exempt</span>}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono text-rose-600 font-bold">
-                                  {rec.breakdown?.epfEtfEnabled !== false 
-                                    ? `-${settings.currency} ${(rec.breakdown?.epfEmployee || 0).toFixed(2)}`
-                                    : '0.00'}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono text-amber-700 font-bold">
-                                  {(rec.breakdown?.salaryAdvance || 0) > 0 
-                                    ? `-${settings.currency} ${(rec.breakdown?.salaryAdvance || 0).toFixed(2)}` 
-                                    : '0.00'}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
-                                  +{(rec.breakdown?.serviceChargeBonus || 0) > 0 ? `${settings.currency} ${(rec.breakdown?.serviceChargeBonus || 0).toFixed(2)}` : '0.00'}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 text-sm">
-                                  {settings.currency} {(rec.breakdown?.netSalary || rec.netPay || 0).toFixed(2)}
-                                </td>
-                                <td className="py-3 px-3 text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {/* Print Advance Slip if advance was given */}
-                                    {Number(rec.breakdown?.salaryAdvance) > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Slip ID</th>
+                            <th className="py-2.5 px-3">Employee</th>
+                            <th className="py-2.5 px-3">Period</th>
+                            <th className="py-2.5 px-3 text-right">Basic + Allowances</th>
+                            <th className="py-2.5 px-3 text-right">EPF Base</th>
+                            <th className="py-2.5 px-3 text-right text-rose-600">EPF 8%</th>
+                            <th className="py-2.5 px-3 text-right text-amber-700">Advance</th>
+                            <th className="py-2.5 px-3 text-right text-emerald-600">Service Pool</th>
+                            <th className="py-2.5 px-3 text-right font-black">Net Take-Home</th>
+                            <th className="py-2.5 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredPayrollRecords.length === 0 ? (
+                            <tr>
+                              <td colSpan={10} className="py-8 text-center text-slate-400 italic">
+                                No payroll records match the selected date or name filters. Click &ldquo;Process Pay Slip&rdquo; above.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredPayrollRecords.map(rec => {
+                              const canManage = currentUser.role === 'Administrator' || currentUser.role === 'Manager';
+
+                              return (
+                                <tr key={rec.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="py-3 px-3 font-mono font-bold text-slate-800">{rec.id}</td>
+                                  <td className="py-3 px-3">
+                                    <span className="font-bold text-slate-900 block">{rec.staffName}</span>
+                                    <span className="text-[10px] text-slate-400">{rec.role}</span>
+                                  </td>
+                                  <td className="py-3 px-3 font-mono font-bold text-slate-700">{rec.period}</td>
+                                  <td className="py-3 px-3 text-right font-mono">
+                                    {settings.currency} {((rec.breakdown?.basic || 0) + (rec.breakdown?.bra || 0) + (rec.breakdown?.allowances || 0)).toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-semibold text-slate-800">
+                                    {rec.breakdown?.epfEtfEnabled !== false 
+                                      ? `${settings.currency} ${(rec.breakdown?.epfLiableEarnings || 0).toFixed(2)}`
+                                      : <span className="text-slate-400 italic text-[10px]">Exempt</span>}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-rose-600 font-bold">
+                                    {rec.breakdown?.epfEtfEnabled !== false 
+                                      ? `-${settings.currency} ${(rec.breakdown?.epfEmployee || 0).toFixed(2)}`
+                                      : '0.00'}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-amber-700 font-bold">
+                                    {(rec.breakdown?.salaryAdvance || 0) > 0 
+                                      ? `-${settings.currency} ${(rec.breakdown?.salaryAdvance || 0).toFixed(2)}` 
+                                      : '0.00'}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-emerald-600 font-bold">
+                                    +{(rec.breakdown?.serviceChargeBonus || 0) > 0 ? `${settings.currency} ${(rec.breakdown?.serviceChargeBonus || 0).toFixed(2)}` : '0.00'}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-black text-slate-950 text-sm">
+                                    {settings.currency} {(rec.breakdown?.netSalary || rec.netPay || 0).toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      {/* Print Advance Slip if advance was given */}
+                                      {Number(rec.breakdown?.salaryAdvance) > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            triggerAutoPrint({
+                                              type: 'SALARY_ADVANCE_VOUCHER',
+                                              data: {
+                                                id: `ADV-${rec.id.slice(-6)}`,
+                                                staffName: rec.staffName,
+                                                role: rec.role,
+                                                period: rec.period,
+                                                amount: rec.breakdown.salaryAdvance,
+                                                notes: rec.notes
+                                              }
+                                            }, `Reprint Advance: ${rec.staffName}`);
+                                          }}
+                                          className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg cursor-pointer transition-colors"
+                                          title="Reprint Advance Voucher"
+                                        >
+                                          <Banknote className="h-4 w-4" />
+                                        </button>
+                                      )}
+
+                                      {/* Print Full Payslip */}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          triggerAutoPrint({
+                                            type: 'PAYSLIP_PRINT',
+                                            data: rec
+                                          }, `Payslip ${rec.id} - ${rec.staffName}`);
+                                        }}
+                                        className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
+                                        title="Print Payslip"
+                                      >
+                                        <Printer className="h-4 w-4" />
+                                      </button>
+
+                                      {/* Edit */}
+                                      {canManage && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setPayrollInputForm({
+                                              staffId: rec.staffId,
+                                              period: rec.period,
+                                              epfEtfEnabled: rec.breakdown?.epfEtfEnabled !== false,
+                                              basicSalary: rec.breakdown?.basic || 35000,
+                                              budgetaryAllowance: rec.breakdown?.bra || 2500,
+                                              otherAllowances: rec.breakdown?.allowances || 0,
+                                              serviceChargeBonus: rec.breakdown?.serviceChargeBonus || 0,
+                                              incentiveBonus: rec.breakdown?.incentiveBonus || 0,
+                                              overtimeHours: (rec.breakdown?.overtimePay && rec.breakdown?.overtimeRate) 
+                                                ? (rec.breakdown.overtimePay / rec.breakdown.overtimeRate) 
+                                                : 0,
+                                              overtimeRate: 250,
+                                              salaryAdvance: rec.breakdown?.salaryAdvance || 0,
+                                              otherDeductions: rec.breakdown?.otherDeductions || 0,
+                                              standardWorkingDays: rec.breakdown?.standardWorkingDays || 26,
+                                              workedDays: rec.breakdown?.workedDays || 26,
+                                              paidLeaves: rec.breakdown?.paidLeaves || 0,
+                                              unpaidLeaves: rec.breakdown?.unpaidLeaves || 0,
+                                              holidaysCount: rec.breakdown?.holidaysCount || 4,
+                                              shortShiftsCount: rec.breakdown?.shortShiftsCount || 0,
+                                              notes: rec.notes || ''
+                                            });
+                                            setEditingPayrollId(rec.id);
+                                            setProcessPayModalOpen(true);
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors"
+                                          title="Edit Payslip"
+                                        >
+                                          <Edit3 className="h-4 w-4" />
+                                        </button>
+                                      )}
+
+                                      {/* Delete */}
+                                      {currentUser.role === 'Administrator' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (window.confirm(`Delete pay slip ${rec.id} for ${rec.staffName}? This action will be recorded in the audit log.`)) {
+                                              setPayrollRecords(prev => prev.filter(r => r.id !== rec.id));
+                                              recordAuditLog(
+                                                'ADMIN_DELETE_PAYSLIP',
+                                                rec.id,
+                                                `Admin ${currentUser.name} deleted pay slip ${rec.id} for ${rec.staffName} (${rec.period})`
+                                              );
+                                            }
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                          title="Delete Payslip"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  
+                  {/* 2. SALARY ADVANCES DISBURSED LEDGER */}
+                  <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs mt-6">
+                    <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                          <Banknote className="h-4 w-4 text-amber-600" />
+                          Salary Advance Disbursements &amp; Recovery Ledger
+                        </h3>
+                        <p className="text-[10px] text-slate-400">
+                          Tracks advances issued to workers and the scheduled monthly payroll recovery
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200">
+                          Total Advances: {settings.currency} {totalFilteredAdvances.toFixed(2)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const firstStaff = staffList[0];
+                            setAdvanceForm({
+                              staffId: firstStaff ? firstStaff.id : '',
+                              period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                              amount: '',
+                              paymentMethod: 'CASH',
+                              reason: 'Emergency advance on salary',
+                              notes: ''
+                            });
+                            setIssueAdvanceModalOpen(true);
+                          }}
+                          className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>Issue Advance</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Voucher Ref</th>
+                            <th className="py-2.5 px-3">Date &amp; Time</th>
+                            <th className="py-2.5 px-3">Employee</th>
+                            <th className="py-2.5 px-3">Recovery Month</th>
+                            <th className="py-2.5 px-3">Method</th>
+                            <th className="py-2.5 px-3">Reason / Notes</th>
+                            <th className="py-2.5 px-3 text-right">Amount</th>
+                            <th className="py-2.5 px-3 text-center">Status</th>
+                            <th className="py-2.5 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredSalaryAdvances.length === 0 ? (
+                            <tr>
+                              <td colSpan={9} className="py-8 text-center text-slate-400 italic">
+                                No salary advance disbursements match the active filters. Click &ldquo;Issue Advance&rdquo; to disburse funds.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredSalaryAdvances.map(adv => {
+                              const isRecovered = (payrollRecords || []).some(
+                                rec => rec.staffId === adv.staffId && rec.period === adv.period
+                              );
+
+                              return (
+                                <tr key={adv.id} className="hover:bg-slate-50 transition-colors">
+                                  <td className="py-3 px-3 font-mono font-bold text-slate-800">{adv.id}</td>
+                                  <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
+                                    {adv.date} {adv.disbursedAt}
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <span className="font-bold text-slate-900 block">{adv.staffName}</span>
+                                    <span className="text-[10px] text-slate-400">{adv.role}</span>
+                                  </td>
+                                  <td className="py-3 px-3 font-mono font-bold text-amber-800 bg-amber-50/50">
+                                    {adv.period}
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
+                                      adv.paymentMethod === 'CASH'
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                        : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
+                                    }`}>
+                                      {adv.paymentMethod}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-slate-600 max-w-xs truncate" title={adv.notes || adv.reason}>
+                                    {adv.reason || adv.notes || 'Advance on wages'}
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-black text-amber-900 text-sm">
+                                    {settings.currency} {Number(adv.amount).toFixed(2)}
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      isRecovered
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {isRecovered ? 'Deducted (Recovered)' : 'Pending Deduction'}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
                                       <button
                                         type="button"
                                         onClick={() => {
                                           triggerAutoPrint({
                                             type: 'SALARY_ADVANCE_VOUCHER',
                                             data: {
-                                              id: `ADV-${rec.id.slice(-6)}`,
-                                              staffName: rec.staffName,
-                                              role: rec.role,
-                                              period: rec.period,
-                                              amount: rec.breakdown.salaryAdvance,
-                                              notes: rec.notes
+                                              id: adv.id,
+                                              staffName: adv.staffName,
+                                              role: adv.role,
+                                              period: adv.period,
+                                              amount: adv.amount,
+                                              notes: adv.notes || adv.reason
                                             }
-                                          }, `Reprint Advance: ${rec.staffName}`);
+                                          }, `Reprint Advance Voucher: ${adv.staffName}`);
                                         }}
-                                        className="p-1.5 text-amber-600 hover:text-amber-800 hover:bg-amber-50 rounded-lg cursor-pointer transition-colors"
+                                        className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
                                         title="Reprint Advance Voucher"
                                       >
-                                        <Banknote className="h-4 w-4" />
+                                        <Printer className="h-4 w-4" />
                                       </button>
-                                    )}
 
-                                    {/* Print Full Payslip */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        triggerAutoPrint({
-                                          type: 'PAYSLIP_PRINT',
-                                          data: rec
-                                        }, `Payslip ${rec.id} - ${rec.staffName}`);
-                                      }}
-                                      className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
-                                      title="Print Payslip"
-                                    >
-                                      <Printer className="h-4 w-4" />
-                                    </button>
-
-                                    {/* Edit */}
-                                    {canManage && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setPayrollInputForm({
-                                            staffId: rec.staffId,
-                                            period: rec.period,
-                                            epfEtfEnabled: rec.breakdown?.epfEtfEnabled !== false,
-                                            basicSalary: rec.breakdown?.basic || 35000,
-                                            budgetaryAllowance: rec.breakdown?.bra || 2500,
-                                            otherAllowances: rec.breakdown?.allowances || 0,
-                                            serviceChargeBonus: rec.breakdown?.serviceChargeBonus || 0,
-                                            incentiveBonus: rec.breakdown?.incentiveBonus || 0,
-                                            overtimeHours: (rec.breakdown?.overtimePay && rec.breakdown?.overtimeRate) 
-                                              ? (rec.breakdown.overtimePay / rec.breakdown.overtimeRate) 
-                                              : 0,
-                                            overtimeRate: 250,
-                                            otherDeductions: rec.breakdown?.otherDeductions || 0,
-                                            notes: rec.notes || ''
-                                          });
-                                          setEditingPayrollId(rec.id);
-                                          setProcessPayModalOpen(true);
-                                        }}
-                                        className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg cursor-pointer transition-colors"
-                                        title="Edit Payslip"
-                                      >
-                                        <Edit3 className="h-4 w-4" />
-                                      </button>
-                                    )}
-
-                                    {/* Delete */}
-                                    {currentUser.role === 'Administrator' && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (window.confirm(`Delete pay slip ${rec.id} for ${rec.staffName}? This action will be recorded in the audit log.`)) {
-                                            setPayrollRecords(prev => prev.filter(r => r.id !== rec.id));
-                                            recordAuditLog(
-                                              'ADMIN_DELETE_PAYSLIP',
-                                              rec.id,
-                                              `Admin ${currentUser.name} deleted pay slip ${rec.id} for ${rec.staffName} (${rec.period})`
-                                            );
-                                          }
-                                        }}
-                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                                        title="Delete Payslip"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                
-                {/* 2. SALARY ADVANCES DISBURSED LEDGER */}
-                <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs mt-6">
-                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
-                        <Banknote className="h-4 w-4 text-amber-600" />
-                        Salary Advance Disbursements &amp; Recovery Ledger
-                      </h3>
-                      <p className="text-[10px] text-slate-400">
-                        Tracks advances issued to workers and the scheduled monthly payroll recovery
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-bold text-amber-900 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200">
-                        Total Advances: {settings.currency} {(salaryAdvances || []).reduce((acc, a) => acc + (Number(a.amount) || 0), 0).toFixed(2)}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const firstStaff = staffList[0];
-                          setAdvanceForm({
-                            staffId: firstStaff ? firstStaff.id : '',
-                            period: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
-                            amount: '',
-                            paymentMethod: 'CASH',
-                            reason: 'Emergency advance on salary',
-                            notes: ''
-                          });
-                          setIssueAdvanceModalOpen(true);
-                        }}
-                        className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer transition-colors"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>Issue Advance</span>
-                      </button>
+                                      {currentUser.role === 'Administrator' && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (window.confirm(`Delete advance voucher ${adv.id} (${settings.currency} ${adv.amount}) for ${adv.staffName}?`)) {
+                                              setSalaryAdvances(prev => prev.filter(a => a.id !== adv.id));
+                                              recordAuditLog(
+                                                'ADMIN_DELETE_SALARY_ADVANCE',
+                                                adv.id,
+                                                `Deleted advance of ${settings.currency} ${adv.amount} for ${adv.staffName} (${adv.period})`
+                                              );
+                                            }
+                                          }}
+                                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                          title="Delete Advance Record"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      )}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
-                        <tr>
-                          <th className="py-2.5 px-3">Voucher Ref</th>
-                          <th className="py-2.5 px-3">Date &amp; Time</th>
-                          <th className="py-2.5 px-3">Employee</th>
-                          <th className="py-2.5 px-3">Recovery Month</th>
-                          <th className="py-2.5 px-3">Method</th>
-                          <th className="py-2.5 px-3">Reason / Notes</th>
-                          <th className="py-2.5 px-3 text-right">Amount</th>
-                          <th className="py-2.5 px-3 text-center">Status</th>
-                          <th className="py-2.5 px-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {(!salaryAdvances || salaryAdvances.length === 0) ? (
-                          <tr>
-                            <td colSpan={9} className="py-8 text-center text-slate-400 italic">
-                              No salary advance disbursements recorded yet. Click &ldquo;Issue Advance&rdquo; to disburse funds.
-                            </td>
-                          </tr>
-                        ) : (
-                          salaryAdvances.map(adv => {
-                            // Check if this advance was already recovered on a settled payslip
-                            const isRecovered = payrollRecords.some(
-                              rec => rec.staffId === adv.staffId && rec.period === adv.period
-                            );
-
-                            return (
-                              <tr key={adv.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-3 px-3 font-mono font-bold text-slate-800">{adv.id}</td>
-                                <td className="py-3 px-3 text-slate-500 whitespace-nowrap">
-                                  {adv.date} {adv.disbursedAt}
-                                </td>
-                                <td className="py-3 px-3">
-                                  <span className="font-bold text-slate-900 block">{adv.staffName}</span>
-                                  <span className="text-[10px] text-slate-400">{adv.role}</span>
-                                </td>
-                                <td className="py-3 px-3 font-mono font-bold text-amber-800 bg-amber-50/50">
-                                  {adv.period}
-                                </td>
-                                <td className="py-3 px-3">
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${
-                                    adv.paymentMethod === 'CASH'
-                                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                                      : 'bg-indigo-50 text-indigo-800 border border-indigo-200'
-                                  }`}>
-                                    {adv.paymentMethod}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-3 text-slate-600 max-w-xs truncate" title={adv.notes || adv.reason}>
-                                  {adv.reason || adv.notes || 'Advance on wages'}
-                                </td>
-                                <td className="py-3 px-3 text-right font-mono font-black text-amber-900 text-sm">
-                                  {settings.currency} {Number(adv.amount).toFixed(2)}
-                                </td>
-                                <td className="py-3 px-3 text-center">
-                                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                    isRecovered
-                                      ? 'bg-emerald-100 text-emerald-800'
-                                      : 'bg-amber-100 text-amber-800'
-                                  }`}>
-                                    {isRecovered ? 'Deducted (Recovered)' : 'Pending Deduction'}
-                                  </span>
-                                </td>
-                                <td className="py-3 px-3 text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
-                                    {/* Reprint Advance Voucher */}
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        triggerAutoPrint({
-                                          type: 'SALARY_ADVANCE_VOUCHER',
-                                          data: {
-                                            id: adv.id,
-                                            staffName: adv.staffName,
-                                            role: adv.role,
-                                            period: adv.period,
-                                            amount: adv.amount,
-                                            notes: adv.notes || adv.reason
-                                          }
-                                        }, `Reprint Advance Voucher: ${adv.staffName}`);
-                                      }}
-                                      className="p-1.5 text-slate-400 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer transition-colors"
-                                      title="Reprint Advance Voucher"
-                                    >
-                                      <Printer className="h-4 w-4" />
-                                    </button>
-
-                                    {/* Delete Advance (Admin only) */}
-                                    {currentUser.role === 'Administrator' && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (window.confirm(`Delete advance voucher ${adv.id} (${settings.currency} ${adv.amount}) for ${adv.staffName}?`)) {
-                                            setSalaryAdvances(prev => prev.filter(a => a.id !== adv.id));
-                                            recordAuditLog(
-                                              'ADMIN_DELETE_SALARY_ADVANCE',
-                                              adv.id,
-                                              `Deleted advance of ${settings.currency} ${adv.amount} for ${adv.staffName} (${adv.period})`
-                                            );
-                                          }
-                                        }}
-                                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
-                                        title="Delete Advance Record"
-                                      >
-                                        <Trash2 className="h-4 w-4" />
-                                      </button>
-                                    )}
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             {/* SUB-TAB 3: SRI LANKA EPF / ETF RETURN (FORM C EQUIVALENT) */}
             {payrollSubTab === 'epf_etf' && (
