@@ -238,15 +238,6 @@ const getLocalDateStr = (d = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
-const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
-  const [manualAttendanceForm, setManualAttendanceForm] = useState({
-    staffId: '',
-    date: getLocalDateStr(),
-    clockInTime: '09:00',
-    clockOutTime: '17:30',
-    notes: 'Missed punch added by supervisor'
-  });
-
 // Clean text and extract numeric value and optional unit
 const parseQtyAndUnit = (rawStr, defaultUnit = 'g') => {
   if (typeof rawStr === 'number') return { qty: rawStr, unit: defaultUnit };
@@ -565,9 +556,19 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
 
   // Persistent Attendance & Time Clock
   const [attendanceLogs, setAttendanceLogs] = usePersistentState('linoli_attendance_logs', []);
+  // Manual Attendance Entry State
+  const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
+  const [manualAttendanceForm, setManualAttendanceForm] = useState({
+    staffId: '',
+    date: getLocalDateStr(),
+    clockInTime: '09:00',
+    clockOutTime: '17:30',
+    notes: 'Missed punch added by supervisor'
+  });
   const [payrollRecords, setPayrollRecords] = usePersistentState('linoli_payroll_records', []);
   const [payrollSubTab, setPayrollSubTab] = useState('attendance'); // 'attendance' | 'payslips' | 'epf_etf' | 'profiles'
   const [editingPayrollId, setEditingPayrollId] = useState(null);
+
 
   // Persistent collection for standalone advance disbursements
   const [salaryAdvances, setSalaryAdvances] = usePersistentState('linoli_salary_advances', []);
@@ -13478,6 +13479,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
           </div>
         </div>
       )}
+      
       {/* MODAL: MANUAL ATTENDANCE PUNCH (ADMIN & MANAGER ACCESS) */}
       {manualAttendanceModalOpen && (
         <div
