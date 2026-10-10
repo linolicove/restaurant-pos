@@ -238,6 +238,15 @@ const getLocalDateStr = (d = new Date()) => {
   return `${year}-${month}-${day}`;
 };
 
+const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
+  const [manualAttendanceForm, setManualAttendanceForm] = useState({
+    staffId: '',
+    date: getLocalDateStr(),
+    clockInTime: '09:00',
+    clockOutTime: '17:30',
+    notes: 'Missed punch added by supervisor'
+  });
+
 // Clean text and extract numeric value and optional unit
 const parseQtyAndUnit = (rawStr, defaultUnit = 'g') => {
   if (typeof rawStr === 'number') return { qty: rawStr, unit: defaultUnit };
@@ -7643,78 +7652,140 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   })}
                 </div>
 
-                {/* Attendance History Table */}
+                {/* ATTENDANCE HISTORY & WORK HOURS SHEET */}
                 <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-xs">
-                  <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div>
-                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                        <Clock className="h-4 w-4 text-[#ff5500]" />
                         Attendance History &amp; Work Hours Sheet
                       </h3>
-                      <p className="text-[10px] text-slate-400">Permanently saved time clock punches</p>
+                      <p className="text-[10px] text-slate-400">
+                        Permanently saved time clock punches and supervisor manual adjustments
+                      </p>
                     </div>
-                    <span className="text-xs font-mono text-slate-600 font-bold">{attendanceLogs.length} Records</span>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-slate-500 bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200">
+                        {attendanceLogs.length} Records
+                      </span>
+
+                      {/* MANUAL PUNCH BUTTON - RESTRICTED TO ADMIN & MANAGER */}
+                      {['Administrator', 'Manager'].includes(currentUser?.role) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const firstStaff = staffList[0];
+                            setManualAttendanceForm({
+                              staffId: firstStaff ? firstStaff.id : '',
+                              date: getLocalDateStr(),
+                              clockInTime: '09:00',
+                              clockOutTime: '17:30',
+                              notes: 'Missed punch added by supervisor'
+                            });
+                            setManualAttendanceModalOpen(true);
+                          }}
+                          className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95"
+                          title="Record a missed clock-in/out for an employee"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-amber-400" />
+                          <span>Manual Punch</span>
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div className="overflow-x-auto">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400 border-b border-slate-200">
                         <tr>
-                          <th className="py-2.5 px-4">Date</th>
-                          <th className="py-2.5 px-4">Employee</th>
-                          <th className="py-2.5 px-4">Role</th>
-                          <th className="py-2.5 px-4">Clock In</th>
-                          <th className="py-2.5 px-4">Clock Out</th>
-                          <th className="py-2.5 px-4 text-center">Total Hours</th>
-                          <th className="py-2.5 px-4 text-center">Overtime (&gt;8h)</th>
-                          <th className="py-2.5 px-4 text-right">Action</th>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Employee</th>
+                          <th className="py-2.5 px-3">Role</th>
+                          <th className="py-2.5 px-3">Clock In</th>
+                          <th className="py-2.5 px-3">Clock Out</th>
+                          <th className="py-2.5 px-3 text-right">Total Hours</th>
+                          <th className="py-2.5 px-3 text-right">Overtime (&gt;8h)</th>
+                          <th className="py-2.5 px-3 text-center">Status</th>
+                          {['Administrator', 'Manager'].includes(currentUser?.role) && (
+                            <th className="py-2.5 px-3 text-right">Action</th>
+                          )}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {attendanceLogs.length === 0 ? (
                           <tr>
-                            <td colSpan={8} className="py-8 text-center text-slate-400 italic">
+                            <td
+                              colSpan={['Administrator', 'Manager'].includes(currentUser?.role) ? 9 : 8}
+                              className="py-12 text-center text-slate-400 italic"
+                            >
                               No attendance punches recorded yet.
                             </td>
                           </tr>
                         ) : (
-                          attendanceLogs.map(att => (
-                            <tr key={att.id} className="hover:bg-slate-50">
-                              <td className="py-3 px-4 font-mono font-bold text-slate-700">{att.date}</td>
-                              <td className="py-3 px-4 font-bold text-slate-900">{att.staffName}</td>
-                              <td className="py-3 px-4 text-slate-500">{att.role}</td>
-                              <td className="py-3 px-4 font-mono text-emerald-700 font-bold">{att.clockInTime}</td>
-                              <td className="py-3 px-4 font-mono text-slate-700 font-bold">{att.clockOutTime || '--:--'}</td>
-                              <td className="py-3 px-4 text-center font-mono font-bold">{att.totalHours ? `${att.totalHours} hrs` : '--'}</td>
-                              <td className="py-3 px-4 text-center">
-                                {att.isOvertime ? (
-                                  <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-amber-100 text-amber-800">
-                                    Overtime
+                          attendanceLogs.map(log => (
+                            <tr key={log.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-3 px-3 font-mono font-bold text-slate-800 whitespace-nowrap">
+                                {log.date}
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="font-bold text-slate-900 block">{log.staffName}</span>
+                                <span className="text-[10px] text-slate-400 font-mono">{log.staffId}</span>
+                              </td>
+                              <td className="py-3 px-3">
+                                <span className="px-2 py-0.5 bg-slate-100 rounded text-[10px] font-semibold text-slate-700">
+                                  {log.role}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 font-mono text-slate-700">
+                                {log.clockIn || log.clockInTime || '--:--'}
+                                {log.isManualOverride && (
+                                  <span className="ml-1.5 px-1.5 py-0.5 bg-amber-100 text-amber-800 font-sans font-bold text-[9px] rounded">
+                                    Manual
                                   </span>
-                                ) : (
-                                  <span className="text-slate-400 font-mono text-[11px]">Normal</span>
                                 )}
                               </td>
-                              <td className="py-3 px-4 text-right">
-                                {currentUser.role === 'Administrator' && (
+                              <td className="py-3 px-3 font-mono text-slate-700">
+                                {log.clockOut || log.clockOutTime || '--:--'}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-slate-900">
+                                {log.totalHours ? `${log.totalHours} hrs` : '--'}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-amber-700">
+                                {Number(log.overtimeHours) > 0 ? `+${log.overtimeHours} hrs` : '0.0 hrs'}
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  log.status === 'COMPLETED'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : 'bg-amber-100 text-amber-800 animate-pulse'
+                                }`}>
+                                  {log.status === 'COMPLETED' ? 'Completed' : 'On Duty'}
+                                </span>
+                              </td>
+
+                              {/* Manager / Admin Delete Punch */}
+                              {['Administrator', 'Manager'].includes(currentUser?.role) && (
+                                <td className="py-3 px-3 text-right">
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      if (window.confirm('Delete attendance punch record? Note: This will only remove it locally; permanent archives remain on cloud.')) {
-                                        setAttendanceLogs(prev => prev.filter(a => a.id !== att.id));
+                                      if (window.confirm(`Delete attendance record for ${log.staffName} on ${log.date}?`)) {
+                                        setAttendanceLogs(prev => prev.filter(a => a.id !== log.id));
                                         recordAuditLog(
-                                          'ADMIN_DELETE_ATTENDANCE_LOG',
-                                          att.id,
-                                          `Admin ${currentUser.name} removed attendance record ${att.id} for ${att.staffName}`
+                                          'ATTENDANCE_LOG_DELETED',
+                                          log.id,
+                                          `Supervisor ${currentUser.name} deleted attendance record for ${log.staffName} (${log.date})`
                                         );
                                       }
                                     }}
-                                    className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                                    title="Delete Record"
+                                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer transition-colors"
+                                    title="Delete punch entry"
                                   >
-                                    <Trash2 className="h-3.5 w-3.5" />
+                                    <Trash2 className="h-4 w-4" />
                                   </button>
-                                )}
-                              </td>
+                                </td>
+                              )}
                             </tr>
                           ))
                         )}
@@ -13401,6 +13472,161 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                 >
                   <Printer className="h-3.5 w-3.5" />
                   <span>Disburse &amp; Print Slip</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* MODAL: MANUAL ATTENDANCE PUNCH (ADMIN & MANAGER ACCESS) */}
+      {manualAttendanceModalOpen && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-xs z-[9999] flex items-center justify-center p-4 text-slate-900"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setManualAttendanceModalOpen(false);
+          }}
+        >
+          <div className="bg-white rounded-3xl w-full max-w-md p-6 shadow-2xl border border-slate-200 relative max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Clock className="h-5 w-5 text-amber-600" />
+                <div>
+                  <h3 className="text-base font-black text-slate-900">Manual Attendance Entry</h3>
+                  <p className="text-[10px] text-slate-500">Retroactively record missed clock-in/out punches</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setManualAttendanceModalOpen(false)}
+                className="text-slate-400 hover:text-slate-900 cursor-pointer p-1"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const selectedMember = staffList.find(s => s.id === manualAttendanceForm.staffId) || staffList[0];
+                if (!selectedMember) {
+                  alert('Please select an employee.');
+                  return;
+                }
+
+                const [inH, inM] = manualAttendanceForm.clockInTime.split(':').map(Number);
+                const [outH, outM] = manualAttendanceForm.clockOutTime.split(':').map(Number);
+                let totalMin = (outH * 60 + outM) - (inH * 60 + inM);
+                if (totalMin < 0) totalMin += 24 * 60; // Handle shifts spanning midnight
+
+                const totalHrs = Number((totalMin / 60).toFixed(2));
+                const otHrs = totalHrs > 8 ? Number((totalHrs - 8).toFixed(2)) : 0;
+
+                const manualRecord = {
+                  id: `ATT-MAN-${Date.now().toString().slice(-6)}`,
+                  staffId: selectedMember.id,
+                  staffName: selectedMember.name,
+                  role: selectedMember.role,
+                  date: manualAttendanceForm.date,
+                  clockInTime: manualAttendanceForm.clockInTime,
+                  clockOutTime: manualAttendanceForm.clockOutTime,
+                  totalHours: totalHrs,
+                  overtimeHours: otHrs,
+                  status: 'COMPLETED',
+                  isManualOverride: true,
+                  enteredBy: currentUser.name,
+                  timestamp: new Date().toISOString(),
+                  notes: manualAttendanceForm.notes || 'Manual punch added by supervisor'
+                };
+
+                setAttendanceLogs(prev => [manualRecord, ...(Array.isArray(prev) ? prev : [])]);
+
+                recordAuditLog(
+                  'MANUAL_ATTENDANCE_RECORDED',
+                  manualRecord.id,
+                  `Manual punch recorded for ${selectedMember.name} on ${manualAttendanceForm.date} (${manualAttendanceForm.clockInTime} to ${manualAttendanceForm.clockOutTime}, ${totalHrs}h) by ${currentUser.name}`
+                );
+
+                setManualAttendanceModalOpen(false);
+              }}
+              className="space-y-3.5"
+            >
+              {/* Select Employee */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Employee *</label>
+                <select
+                  value={manualAttendanceForm.staffId}
+                  onChange={e => setManualAttendanceForm(prev => ({ ...prev, staffId: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                >
+                  {staffList.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Date */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Shift Date *</label>
+                <input
+                  type="date"
+                  required
+                  value={manualAttendanceForm.date}
+                  onChange={e => setManualAttendanceForm(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                />
+              </div>
+
+              {/* In and Out Times */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Clock In Time *</label>
+                  <input
+                    type="time"
+                    required
+                    value={manualAttendanceForm.clockInTime}
+                    onChange={e => setManualAttendanceForm(prev => ({ ...prev, clockInTime: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Clock Out Time *</label>
+                  <input
+                    type="time"
+                    required
+                    value={manualAttendanceForm.clockOutTime}
+                    onChange={e => setManualAttendanceForm(prev => ({ ...prev, clockOutTime: e.target.value }))}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                  />
+                </div>
+              </div>
+
+              {/* Reason / Notes */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Reason / Notes</label>
+                <input
+                  type="text"
+                  value={manualAttendanceForm.notes}
+                  onChange={e => setManualAttendanceForm(prev => ({ ...prev, notes: e.target.value }))}
+                  placeholder="e.g. Card not scanned / power outage"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setManualAttendanceModalOpen(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-[#ff5500] hover:bg-orange-600 text-white font-bold rounded-xl text-xs shadow-xs cursor-pointer transition-colors"
+                >
+                  Save Time Record
                 </button>
               </div>
             </form>
