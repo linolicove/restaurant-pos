@@ -2157,78 +2157,104 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
   };
 
   const handleSendOrder = () => {
-    if (cart.length === 0) return;
+  if (cart.length === 0) return;
 
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  // =========================================================================
+  // OCCUPIED TABLE GUARD: Prevent creating a duplicate order for an active table
+  // =========================================================================
+  const isEditingCurrentTable = settlingOrder && (
+    settlingOrder.table === selectedTable?.name ||
+    settlingOrder.tableName === selectedTable?.name ||
+    settlingOrder.tableId === selectedTable?.id
+  );
 
-    // =========================================================================
-    // CASE A: Updating an existing active bill redirected from Billing Queue
-    // =========================================================================
-    if (settlingOrder && activeOrders.some(o => o.orderId === settlingOrder.orderId)) {
-      const originalOrder = activeOrders.find(o => o.orderId === settlingOrder.orderId);
-      const originalItems = originalOrder?.items || [];
-      const updatedItems = cart;
-      const changes = [];
-      const newlyAddedOrIncremented = [];
+  if (!isEditingCurrentTable) {
+    const existingActiveOrder = (activeOrders || []).find(o =>
+      o.table === selectedTable?.name ||
+      o.tableName === selectedTable?.name ||
+      o.tableId === selectedTable?.id
+    );
 
-      // 1. Detect item additions and increased quantities
-      updatedItems.forEach(item => {
-        const prev = originalItems.find(i => (i.cartItemId || i.id) === (item.cartItemId || item.id));
-        if (!prev) {
-          changes.push(`ADDED "${item.name}" (Qty: ${item.qty})`);
-          newlyAddedOrIncremented.push({ ...item, qty: item.qty });
-        } else if (item.qty > prev.qty) {
-          const diff = item.qty - prev.qty;
-          changes.push(`INCREASED "${item.name}" (+${diff}, now ${item.qty})`);
-          newlyAddedOrIncremented.push({ ...item, qty: diff });
-        } else if (item.qty < prev.qty) {
-          const diff = prev.qty - item.qty;
-          changes.push(`DECREASED "${item.name}" (-${diff}, now ${item.qty})`);
-        }
-      });
+    if (existingActiveOrder) {
+      alert(
+        `🚫 ${selectedTable?.name || 'This table'} is already OCCUPIED with an active bill!\n\n` +
+        `Direct new order dispatch is locked to prevent duplicate bills.\n\n` +
+        `To add items or modify this table, go to "Billing & Settlement Queue" and click "Edit in POS".`
+      );
+      return;
+    }
+  }
 
-      // 2. Detect removed items
-      originalItems.forEach(item => {
-        const stillExists = updatedItems.some(i => (i.cartItemId || i.id) === (item.cartItemId || item.id));
-        if (!stillExists) {
-          changes.push(`REMOVED "${item.name}" (was Qty: ${item.qty})`);
-        }
-      });
+  const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-      const changeSummary = changes.length > 0 ? changes.join(' | ') : 'No line changes';
+  // =========================================================================
+  // CASE A: Updating an existing active bill redirected from Billing Queue
+  // =========================================================================
+  if (settlingOrder && activeOrders.some(o => o.orderId === settlingOrder.orderId)) {
+    const originalOrder = activeOrders.find(o => o.orderId === settlingOrder.orderId);
+    const originalItems = originalOrder?.items || [];
+    const updatedItems = cart;
+    const changes = [];
+    const newlyAddedOrIncremented = [];
 
-      // 3. Update the existing active order with the updated cart items & financial settings
-      const updatedOrder = {
-        ...originalOrder,
-        items: [...cart],
-        serviceChargeActive,
-        taxActive,
-        discountPercent,
-        lastUpdatedAt: nowTime
-      };
-
-      setActiveOrders(prev => prev.map(o => o.orderId === originalOrder.orderId ? updatedOrder : o));
-
-      // 4. Auto-print ONLY the newly added items / increments to Kitchen & Bar
-      if (newlyAddedOrIncremented.length > 0 && settings.autoPrintOrder !== false) {
-        const kitchenItems = newlyAddedOrIncremented.filter(i => i.department === 'Kitchen');
-        const barItems = newlyAddedOrIncremented.filter(i => i.department === 'Bar');
-
-        if (kitchenItems.length > 0 || barItems.length > 0) {
-          triggerAutoPrint({
-            type: 'KOT_BOT_DISPATCH',
-            data: {
-              order: {
-                ...updatedOrder,
-                sentAt: nowTime,
-                isAddon: true
-              },
-              kitchenItems,
-              barItems
-            }
-          }, `${updatedOrder.tableName} • Add-on KOT/BOT Auto-Printed`);
-        }
+    // 1. Detect item additions and increased quantities
+    updatedItems.forEach(item => {
+      const prev = originalItems.find(i => (i.cartItemId || i.id) === (item.cartItemId || item.id));
+      if (!prev) {
+        changes.push(`ADDED "${item.name}" (Qty: ${item.qty})`);
+        newlyAddedOrIncremented.push({ ...item, qty: item.qty });
+      } else if (item.qty > prev.qty) {
+        const diff = item.qty - prev.qty;
+        changes.push(`INCREASED "${item.name}" (+${diff}, now ${item.qty})`);
+        newlyAddedOrIncremented.push({ ...item, qty: diff });
+      } else if (item.qty < prev.qty) {
+        const diff = prev.qty - item.qty;
+        changes.push(`DECREASED "${item.name}" (-${diff}, now ${item.qty})`);
       }
+    });
+
+    // 2. Detect removed items
+    originalItems.forEach(item => {
+      const stillExists = updatedItems.some(i => (i.cartItemId || i.id) === (item.cartItemId || item.id));
+      if (!stillExists) {
+        changes.push(`REMOVED "${item.name}" (was Qty: ${item.qty})`);
+      }
+    });
+
+    const changeSummary = changes.length > 0 ? changes.join(' | ') : 'No line changes';
+
+    // 3. Update the existing active order with the updated cart items & financial settings
+    const updatedOrder = {
+      ...originalOrder,
+      items: [...cart],
+      serviceChargeActive,
+      taxActive,
+      discountPercent,
+      lastUpdatedAt: nowTime
+    };
+
+    setActiveOrders(prev => prev.map(o => o.orderId === originalOrder.orderId ? updatedOrder : o));
+
+    // 4. Auto-print ONLY the newly added items / increments to Kitchen & Bar
+    if (newlyAddedOrIncremented.length > 0 && settings.autoPrintOrder !== false) {
+      const kitchenItems = newlyAddedOrIncremented.filter(i => i.department === 'Kitchen');
+      const barItems = newlyAddedOrIncremented.filter(i => i.department === 'Bar');
+
+      if (kitchenItems.length > 0 || barItems.length > 0) {
+        triggerAutoPrint({
+          type: 'KOT_BOT_DISPATCH',
+          data: {
+            order: {
+              ...updatedOrder,
+              sentAt: nowTime,
+              isAddon: true
+            },
+            kitchenItems,
+            barItems
+          }
+        }, `${updatedOrder.tableName || updatedOrder.table} Add-on KOT/BOT Auto-Printed`);
+      }
+    }
 
       // 5. Audit Log
       recordAuditLog(
@@ -3668,35 +3694,52 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                         </div>
                       </div>
 
-                      <div className="pt-2 border-t border-slate-100 space-y-2">
-                        <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
-                          {/* Edit Items in POS */}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCart(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
-                              setOrderMode(order.mode || 'DINING');
-                              if (order.tableId) {
-                                const tbl = floorTables.find(t => t.id === order.tableId);
-                                if (tbl) setSelectedTable(tbl);
-                              } else {
-                                setTakeawayInfo(prev => ({
-                                  ...prev,
-                                  name: order.customerName || 'Walk-in Guest',
-                                  token: order.tableName || 'TK-101'
-                                }));
-                              }
-                              setServiceChargeActive(order.serviceChargeActive !== false);
-                              setTaxActive(Boolean(order.taxActive));
-                              setDiscountPercent(order.discountPercent || 0);
-                              setSettlingOrder(order);
-                              setActiveTab('pos');
-                            }}
-                            className="py-2.5 sm:py-2 px-1 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
-                          >
-                            <Edit3 className="h-3 w-3 text-[#ff5500] shrink-0" />
-                            <span className="truncate">Edit in POS</span>
-                          </button>
+                     <div className="pt-2 border-t border-slate-100 space-y-2">
+  <div className="grid grid-cols-3 gap-1.5 sm:gap-2 text-[11px] sm:text-xs">
+    {/* Edit Items in POS */}
+    <button
+      type="button"
+      onClick={() => {
+        setCart(order.items ? JSON.parse(JSON.stringify(order.items)) : []);
+        setOrderMode(order.mode || 'DINING');
+
+        // Locate table object by ID or by name (e.g. "Table 1")
+        const tbl = floorTables.find(t => 
+          (order.tableId && t.id === order.tableId) ||
+          t.name === order.tableName ||
+          t.name === order.table
+        );
+
+        if (tbl) {
+          setSelectedTable(tbl);
+        } else if (order.mode === 'DINING' && (order.tableName || order.table)) {
+          // Fallback object if not in floorTables array
+          setSelectedTable({
+            id: order.tableId || `tbl_${(order.tableName || order.table).replace(/\s+/g, '_').toLowerCase()}`,
+            name: order.tableName || order.table,
+            zone: order.zone || 'Main Dining',
+            capacity: order.capacity || 4,
+            status: 'OCCUPIED'
+          });
+        } else {
+          setTakeawayInfo(prev => ({
+            ...prev,
+            name: order.customerName || 'Walk-in Guest',
+            token: order.tableName || 'TK-101'
+          }));
+        }
+
+        setServiceChargeActive(order.serviceChargeActive !== false);
+        setTaxActive(Boolean(order.taxActive));
+        setDiscountPercent(order.discountPercent || 0);
+        setSettlingOrder(order);
+        setActiveTab('pos');
+      }}
+      className="py-2.5 sm:py-2 px-1 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 font-bold flex items-center justify-center gap-1 cursor-pointer transition-colors"
+    >
+      <Edit3 className="h-3 w-3 text-[#ff5500] shrink-0" />
+      <span className="truncate">Edit in POS</span>
+    </button>
 
                           {/* Temp Bill */}
                           <button
@@ -11659,42 +11702,77 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
 
                 <div className="grid grid-cols-2 gap-2.5 max-h-60 overflow-y-auto pr-1">
                   {floorTables.map(tbl => {
-                    const isSelected = selectedTable.id === tbl.id;
-                    const isOccupied = tbl.status === 'OCCUPIED';
-                    return (
-                      <button
-                        key={tbl.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedTable(tbl);
-                          setAllocationModalOpen(false);
-                        }}
-                        className={`p-3 rounded-2xl border text-left flex items-start justify-between transition-all cursor-pointer ${
-                          isSelected
-                            ? 'border-[#ff5500] bg-orange-50/80 ring-2 ring-orange-500/20 shadow-xs'
-                            : 'border-slate-200 bg-white hover:bg-slate-50'
-                        }`}
-                      >
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-black text-xs text-slate-900">{tbl.name}</span>
-                            <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded-full ${
-                              isOccupied ? 'bg-orange-100 text-[#ff5500]' : 'bg-emerald-100 text-emerald-700'
-                            }`}>
-                              {tbl.status}
-                            </span>
-                          </div>
-                          <p className="text-[10px] text-slate-500 mt-0.5">{tbl.zone}</p>
-                          <span className="text-[10px] text-slate-400 font-mono mt-1 block">Capacity: {tbl.capacity} Seats</span>
-                        </div>
-                        <div className={`h-5 w-5 rounded-full flex items-center justify-center border shrink-0 transition-all ${
-                          isSelected ? 'bg-[#ff5500] border-[#ff5500] text-white' : 'border-slate-300 bg-white'
-                        }`}>
-                          {isSelected && <Check className="h-3 w-3 stroke-[3]" />}
-                        </div>
-                      </button>
-                    );
-                  })}
+  const isSelected = selectedTable?.id === tbl.id;
+
+  // Verify occupied status against both table status and active open bills in the queue
+  const activeBill = (settlementQueue || []).find(
+    b => b.table === tbl.name || b.tableName === tbl.name || b.tableId === tbl.id
+  );
+  const isOccupied = tbl.status === 'OCCUPIED' || Boolean(activeBill);
+
+  return (
+    <button
+      key={tbl.id}
+      type="button"
+      onClick={() => {
+        if (isOccupied) {
+          alert(
+            `🚫 ${tbl.name} is OCCUPIED with an active bill (${settings.currency} ${(activeBill?.total || 0).toFixed(2)}).\n\nDirect new order dispatch is locked. To modify or add items to this table, go to "Billing & Settlement Queue" and click "Edit in POS".`
+          );
+          return;
+        }
+        setSelectedTable(tbl);
+        setAllocationModalOpen(false);
+      }}
+      className={`p-3 rounded-2xl border text-left flex items-start justify-between transition-all ${
+        isOccupied
+          ? 'border-rose-400 bg-rose-50/70 hover:bg-rose-100/80 cursor-not-allowed shadow-xs'
+          : isSelected
+          ? 'border-[#ff5500] bg-orange-50/80 ring-2 ring-orange-500/20 shadow-xs cursor-pointer'
+          : 'border-slate-200 bg-white hover:bg-slate-50 cursor-pointer'
+      }`}
+    >
+      <div>
+        <div className="flex items-center gap-1.5">
+          <span className={`font-black text-xs ${isOccupied ? 'text-rose-950' : 'text-slate-900'}`}>
+            {tbl.name}
+          </span>
+          <span
+            className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+              isOccupied
+                ? 'bg-rose-600 text-white animate-pulse'
+                : 'bg-emerald-100 text-emerald-800'
+            }`}
+          >
+            {isOccupied ? 'Occupied (Locked)' : 'Available'}
+          </span>
+        </div>
+        <p className="text-[10px] text-slate-500 mt-0.5">{tbl.zone}</p>
+        <span className="text-[10px] text-slate-400 font-mono mt-1 block">
+          Capacity: {tbl.capacity} Seats
+        </span>
+        {isOccupied && activeBill && (
+          <span className="text-[10px] font-mono font-black text-rose-700 mt-1 block">
+            Active: {settings.currency} {Number(activeBill.total || 0).toFixed(2)}
+          </span>
+        )}
+      </div>
+
+      <div
+        className={`h-5 w-5 rounded-full flex items-center justify-center border shrink-0 transition-all ${
+          isOccupied
+            ? 'border-rose-300 bg-rose-200 text-rose-800'
+            : isSelected
+            ? 'bg-[#ff5500] border-[#ff5500] text-white'
+            : 'border-slate-300 bg-white'
+        }`}
+      >
+        {isSelected && !isOccupied && <Check className="h-3 w-3 stroke-[3]" />}
+        {isOccupied && <Lock className="h-3 w-3 text-rose-700 stroke-[2.5]" />}
+      </div>
+    </button>
+  );
+})}
                 </div>
               </div>
             ) : (
