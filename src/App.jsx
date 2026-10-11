@@ -701,15 +701,15 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [stockLogs, setStockLogs] = usePersistentState('linoli_stock_logs', []);
   // System Settings
   const [settings, setSettings] = usePersistentState('linoli_system_settings', {
-    restaurantName: 'Linoli Cove Midigama',
+    restaurantName: 'LC POS SYSTEM',
     tagline: 'RESTAURANT & BAR',
-    legalName: 'Linoli Cove Leisure (Pvt) Ltd',
+    legalName: 'LC POS SYSTEMS (PVT) LTD',
     businessRegNo: 'PV-00289144',
     taxId: 'TIN-109284719',
-    terminalId: 'LINOLI-MAIN-01',
+    terminalId: 'LC POS DEMO',
     phone: '+94 74 036 6741',
-    email: 'info@linolicove.me',
-    website: 'www.linolicove.me',
+    email: 'info@lcpossystems.com',
+    website: 'www.lcpossystems.com',
     address: '380 A Matara Road, Midigama, 81700',
     currency: 'Rs.',
     serviceChargeRate: 10,
@@ -724,7 +724,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     drawerKickTrigger: 'CASH_ONLY',
     drawerPinout: 'PIN_2',
     chimeAudio: true,
-    receiptHeader: 'Linoli Cove Beach Resort & Dining\nBeach Road, Midigama\nTel: +94 74 036 6741',
+    receiptHeader: 'LC POS SYSTEM\nBeach Road, Midigama\nTel: +94 74 036 6741',
     receiptFooter: 'Thank you for your visit!\nPlease come again.'
   });
 
@@ -785,7 +785,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
 
   const [emailSettings, setEmailSettings] = usePersistentState('linoli_email_settings', {
     enabled: true,
-    recipient: 'linolicove@gmail.com',
+    recipient: 'info@lcpossystems.com',
     scheduledTime: '23:30',
     webhookUrl: '',
     emailjsServiceId: '',
