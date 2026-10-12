@@ -76,7 +76,7 @@ const ROLE_PERMISSIONS = {
 };
 
 const INITIAL_STAFF = [
-  { id: 'usr_admin', name: 'System Administrator', role: 'Administrator', pin: '2022', avatar: 'SA', email: 'admin@LCPOSSYSTEMS.com' }
+  { id: 'usr_admin', name: 'System Administrator', role: 'Administrator', pin: '2022', avatar: 'SA', email: 'admin@lcpossystems.com' }
 ];
 
 const INITIAL_RAW_INVENTORY = [
@@ -411,7 +411,7 @@ const extractMenuFromPDF = async (file) => {
     for (let i = 0; i < content.items.length; i++) {
       const str = (content.items[i].str || '').trim();
       // Skip empty fragments and headers/footers
-      if (!str || str === '|' || str.startsWith('Page ') || str.includes('LCPOSSYSTEMS POS Menu Import File')) {
+      if (!str || str === '|' || str.startsWith('Page ') || str.includes('LC POS SYSTEMS POS Menu Import File')) {
         continue;
       }
       rawTokens.push(str);
@@ -510,30 +510,27 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
 };
   
   // Persistent collections
-  const [staffList, setStaffList] = usePersistentState('LCPOSSYSTEMS_staff_list', INITIAL_STAFF);
+  const [staffList, setStaffList] = usePersistentState('lcpossystems_staff_list', INITIAL_STAFF);
   const [currentUser, setCurrentUser] = useState(INITIAL_STAFF[0]);
-  const [inventory, setInventory] = usePersistentState('LCPOSSYSTEMS_inventory', INITIAL_RAW_INVENTORY);
+  const [inventory, setInventory] = usePersistentState('lcpossystems_inventory', INITIAL_RAW_INVENTORY);
   // Stock & Inventory View Filter States
   const [stockCategoryFilter, setStockCategoryFilter] = useState('All');
   const [stockSearchQuery, setStockSearchQuery] = useState('');
   const [stockStatusFilter, setStockStatusFilter] = useState('ALL'); // 'ALL' | 'LOW' | 'OPTIMAL'
   const [stockDateFilter, setStockDateFilter] = useState(getLocalDateStr());
-  const [menuItems, setMenuItems] = usePersistentState('LCPOSSYSTEMS_menu_items', INITIAL_MENU_ITEMS);
-  const [floorTables, setFloorTables] = usePersistentState('LCPOSSYSTEMS_floor_tables', INITIAL_FLOOR_TABLES);
-  const [activeOrders, setActiveOrders] = usePersistentState('LCPOSSYSTEMS_active_orders', []);
-  // Alias so references to settlementQueue in table locking work smoothly
-  const settlementQueue = activeOrders;
-  const setSettlementQueue = setActiveOrders;
-  const [transactions, setTransactions] = usePersistentState('LCPOSSYSTEMS_transactions', []);
-  const [auditLogs, setAuditLogs] = usePersistentState('LCPOSSYSTEMS_audit_logs', []);
-  const [cancelledTickets, setCancelledTickets] = usePersistentState('LCPOSSYSTEMS_cancelled_tickets', []);
+  const [menuItems, setMenuItems] = usePersistentState('lcpossystems_menu_items', INITIAL_MENU_ITEMS);
+  const [floorTables, setFloorTables] = usePersistentState('lcpossystems_floor_tables', INITIAL_FLOOR_TABLES);
+  const [activeOrders, setActiveOrders] = usePersistentState('lcpossystems_active_orders', []);
+  const [transactions, setTransactions] = usePersistentState('lcpossystems_transactions', []);
+  const [auditLogs, setAuditLogs] = usePersistentState('lcpossystems_audit_logs', []);
+  const [cancelledTickets, setCancelledTickets] = usePersistentState('lcpossystems_cancelled_tickets', []);
   // Persistent sequential counters for sequential numbering
-  const [seqCounters, setSeqCounters] = usePersistentState('LCPOSSYSTEMS_seq_counters', {
+  const [seqCounters, setSeqCounters] = usePersistentState('lcpossystems_seq_counters', {
     order: 1,
     invoice: 1,
     cashOut: 1
   });
-  const [vendorBills, setVendorBills] = usePersistentState('LCPOSSYSTEMS_vendor_bills', []);
+  const [vendorBills, setVendorBills] = usePersistentState('lcpossystems_vendor_bills', []);
   const [addVendorBillModalOpen, setAddVendorBillModalOpen] = useState(false);
   const [vendorBillForm, setVendorBillForm] = useState({
     invoiceNumber: '',
@@ -558,7 +555,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [accountingEndDate, setAccountingEndDate] = useState('');
 
   // Persistent Attendance & Time Clock
-  const [attendanceLogs, setAttendanceLogs] = usePersistentState('LCPOSSYSTEMS_attendance_logs', []);
+  const [attendanceLogs, setAttendanceLogs] = usePersistentState('lcpossystems_attendance_logs', []);
   // Manual Attendance Entry State
   const [manualAttendanceModalOpen, setManualAttendanceModalOpen] = useState(false);
   const [manualAttendanceForm, setManualAttendanceForm] = useState({
@@ -568,7 +565,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     clockOutTime: '17:30',
     notes: 'Missed punch added by supervisor'
   });
-  const [payrollRecords, setPayrollRecords] = usePersistentState('LCPOSSYSTEMS_payroll_records', []);
+  const [payrollRecords, setPayrollRecords] = usePersistentState('lcpossystems_payroll_records', []);
   // Payroll & Advances Filter States
   const [payrollStartDate, setPayrollStartDate] = useState('');
   const [payrollEndDate, setPayrollEndDate] = useState('');
@@ -579,7 +576,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
 
 
   // Persistent collection for standalone advance disbursements
-  const [salaryAdvances, setSalaryAdvances] = usePersistentState('LCPOSSYSTEMS_salary_advances', []);
+  const [salaryAdvances, setSalaryAdvances] = usePersistentState('lcpossystems_salary_advances', []);
   const [issueAdvanceModalOpen, setIssueAdvanceModalOpen] = useState(false);
   const [advanceForm, setAdvanceForm] = useState({
     staffId: '',
@@ -590,10 +587,6 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     notes: ''
   });
   const prevAdvancesRef = useRef('');
-  const prevStockLogsRef = useRef('');      // <-- ADD THIS
-  const prevSettingsRef = useRef('');       // <-- ADD THIS
-  const prevShiftHistoryRef = useRef('');   // <-- ADD THIS
-  const prevCountersRef = useRef('');       // <-- ADD THIS
   
   // 1. Declare modal open state
   const [processPayModalOpen, setProcessPayModalOpen] = useState(false);
@@ -703,20 +696,20 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   };
 
   // Tracks unsettled cash discrepancy carried across shifts
-  const [unsettledVariance, setUnsettledVariance] = usePersistentState('LCPOSSYSTEMS_unsettled_variance', 0);
+  const [unsettledVariance, setUnsettledVariance] = usePersistentState('lcpossystems_unsettled_variance', 0);
 // Persistent stock movement difference & intake ledger
-  const [stockLogs, setStockLogs] = usePersistentState('LCPOSSYSTEMS_stock_logs', []);
+  const [stockLogs, setStockLogs] = usePersistentState('lcpossystems_stock_logs', []);
   // System Settings
-  const [settings, setSettings] = usePersistentState('LCPOSSYSTEMS_system_settings', {
-    restaurantName: 'LC POS SYSTEM',
+  const [settings, setSettings] = usePersistentState('lcpossystems_system_settings', {
+    restaurantName: 'LC POS SYSTEMS Midigama',
     tagline: 'RESTAURANT & BAR',
-    legalName: 'LC POS SYSTEMS (PVT) LTD',
+    legalName: 'LC POS SYSTEMS Leisure (Pvt) Ltd',
     businessRegNo: 'PV-00289144',
     taxId: 'TIN-109284719',
-    terminalId: 'LC POS DEMO',
+    terminalId: 'LCPOSSYSTEMS-MAIN-01',
     phone: '+94 74 036 6741',
-    email: 'info@lcpossystems.com',
-    website: 'www.lcpossystems.com',
+    email: 'info@lcpossystems.me',
+    website: 'www.lcpossystems.me',
     address: '380 A Matara Road, Midigama, 81700',
     currency: 'Rs.',
     serviceChargeRate: 10,
@@ -731,12 +724,12 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
     drawerKickTrigger: 'CASH_ONLY',
     drawerPinout: 'PIN_2',
     chimeAudio: true,
-    receiptHeader: 'LC POS SYSTEM\nBeach Road, Midigama\nTel: +94 74 036 6741',
+    receiptHeader: 'LC POS SYSTEMS Beach Resort & Dining\nBeach Road, Midigama\nTel: +94 74 036 6741',
     receiptFooter: 'Thank you for your visit!\nPlease come again.'
   });
 
   // Shifts state
-  const [currentShift, setCurrentShift] = usePersistentState('LCPOSSYSTEMS_current_shift', {
+  const [currentShift, setCurrentShift] = usePersistentState('lcpossystems_current_shift', {
     shiftId: `SHIFT-${getLocalDateStr().replace(/-/g, '')}-01`,
     openedDate: getLocalDateStr(),
     openedAt: '09:00 AM',
@@ -747,10 +740,10 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   });
 
   // Dedicated persistent running float that preserves cash across shift rollovers
-  const [runningFloat, setRunningFloat] = usePersistentState('LCPOSSYSTEMS_running_float', 10000.00);
+  const [runningFloat, setRunningFloat] = usePersistentState('lcpossystems_running_float', 10000.00);
 
-  const [shiftHistory, setShiftHistory] = usePersistentState('LCPOSSYSTEMS_shift_history', []);
-  const [denominations, setDenominations] = usePersistentState('LCPOSSYSTEMS_denominations', {
+  const [shiftHistory, setShiftHistory] = usePersistentState('lcpossystems_shift_history', []);
+  const [denominations, setDenominations] = usePersistentState('lcpossystems_denominations', {
     5000: 0, 1000: 0, 500: 0, 100: 0, 50: 0, 20: 0
   });
   const [payoutForm, setPayoutForm] = useState({ amount: '', reason: '' });
@@ -790,9 +783,9 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const [usbStatusMessage, setUsbStatusMessage] = useState('');
   const [settingsNotice, setSettingsNotice] = useState(null);
 
-  const [emailSettings, setEmailSettings] = usePersistentState('LCPOSSYSTEMS_email_settings', {
+  const [emailSettings, setEmailSettings] = usePersistentState('lcpossystems_email_settings', {
     enabled: true,
-    recipient: 'info@lcpossystems.com',
+    recipient: 'lcpossystems@gmail.com',
     scheduledTime: '23:30',
     webhookUrl: '',
     emailjsServiceId: '',
@@ -932,7 +925,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   };
   
  // Refs to prevent premature uploads and re-render loops
-  const isCloudSynced = useRef(true);
+  const isCloudSynced = useRef(false);
   const prevOrdersRef = useRef('');
   const prevTransRef = useRef('');
   const prevTablesRef = useRef('');
@@ -945,7 +938,14 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   const prevAttendanceRef = useRef('');
   const prevPayrollRef = useRef('');
   const prevDenomRef = useRef('');
-  const [expenses, setExpenses] = usePersistentState('LCPOSSYSTEMS_expenses', []);
+  const [expenses, setExpenses] = useState(() => {
+  try {
+    const local = localStorage.getItem('lcpossystems_expenses');
+    return local ? JSON.parse(local) : [];
+  } catch (e) {
+    return [];
+  }
+  });
 
   // ============================================================
   // 1. REAL-TIME CLOUD LISTENERS (Download from Firebase)
@@ -959,7 +959,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
         if (prevOrdersRef.current === serialized) return;
         prevOrdersRef.current = serialized;
         setActiveOrders(remoteOrders);
-        localStorage.setItem('LCPOSSYSTEMS_active_orders', serialized);
+        localStorage.setItem('lcpossystems_active_orders', serialized);
       }
     });
 
@@ -971,7 +971,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
         if (prevTransRef.current === serialized) return;
         prevTransRef.current = serialized;
         setTransactions(remoteTrans);
-        localStorage.setItem('LCPOSSYSTEMS_transactions', serialized);
+        localStorage.setItem('lcpossystems_transactions', serialized);
       }
     });
 
@@ -983,7 +983,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
         if (prevTablesRef.current === serialized) return;
         prevTablesRef.current = serialized;
         setFloorTables(remoteTables);
-        localStorage.setItem('LCPOSSYSTEMS_floor_tables', serialized);
+        localStorage.setItem('lcpossystems_floor_tables', serialized);
       }
     });
 
@@ -995,7 +995,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
         if (prevAuditsRef.current === serialized) return;
         prevAuditsRef.current = serialized;
         setAuditLogs(remoteAudits);
-        localStorage.setItem('LCPOSSYSTEMS_audit_logs', serialized);
+        localStorage.setItem('lcpossystems_audit_logs', serialized);
       }
     });
 
@@ -1007,7 +1007,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
         if (prevMenuRef.current === serialized) return;
         prevMenuRef.current = serialized;
         setMenuItems(remoteMenu);
-        localStorage.setItem('LCPOSSYSTEMS_menu_items', serialized);
+        localStorage.setItem('lcpossystems_menu_items', serialized);
       }
     });
     // 6. Receive raw inventory adjustments
@@ -1018,7 +1018,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
       if (prevInventoryRef.current === serialized) return;
       prevInventoryRef.current = serialized;
       setInventory(remoteInv);
-      localStorage.setItem('LCPOSSYSTEMS_inventory', serialized);
+      localStorage.setItem('lcpossystems_inventory', serialized);
     }
   });
 
@@ -1030,7 +1030,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
       if (prevExpensesRef.current === serialized) return;
       prevExpensesRef.current = serialized;
       setExpenses(remoteExp);
-      localStorage.setItem('LCPOSSYSTEMS_expenses', serialized);
+      localStorage.setItem('lcpossystems_expenses', serialized);
     }
   }); 
   // 8. Receive incoming cashier shift updates
@@ -1041,7 +1041,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     if (prevShiftRef.current === serialized) return;
     prevShiftRef.current = serialized;
     setCurrentShift(remoteShift);
-    localStorage.setItem('LCPOSSYSTEMS_current_shift', serialized);
+    localStorage.setItem('lcpossystems_current_shift', serialized);
   }
 });
   // 8. Receive incoming staff list
@@ -1052,7 +1052,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevStaffRef.current === serialized) return;
         prevStaffRef.current = serialized;
         setStaffList(remoteStaff);
-        localStorage.setItem('LCPOSSYSTEMS_staff_list', serialized);
+        localStorage.setItem('lcpossystems_staff_list', serialized);
       }
     });
     // 9. Receive physical denomination counts from cloud
@@ -1063,7 +1063,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevDenomRef.current === serialized) return;
         prevDenomRef.current = serialized;
         setDenominations(remoteDenom);
-        localStorage.setItem('LCPOSSYSTEMS_denominations', serialized);
+        localStorage.setItem('lcpossystems_denominations', serialized);
       }
     });
 
@@ -1075,7 +1075,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevAttendanceRef.current === serialized) return;
         prevAttendanceRef.current = serialized;
         setAttendanceLogs(remoteAtt);
-        localStorage.setItem('LCPOSSYSTEMS_attendance_logs', serialized);
+        localStorage.setItem('lcpossystems_attendance_logs', serialized);
       }
     });
 
@@ -1087,7 +1087,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevPayrollRef.current === serialized) return;
         prevPayrollRef.current = serialized;
         setPayrollRecords(remotePay);
-        localStorage.setItem('LCPOSSYSTEMS_payroll_records', serialized);
+        localStorage.setItem('lcpossystems_payroll_records', serialized);
       }
     });
     
@@ -1106,7 +1106,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevVendorBillsRef.current === serialized) return;
         prevVendorBillsRef.current = serialized;
         setVendorBills(remoteBills);
-        localStorage.setItem('LCPOSSYSTEMS_vendor_bills', serialized);
+        localStorage.setItem('lcpossystems_vendor_bills', serialized);
       }
     });
     // Inbound listener for salary advances
@@ -1117,54 +1117,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (prevAdvancesRef.current === serialized) return;
         prevAdvancesRef.current = serialized;
         setSalaryAdvances(remoteAdv);
-        localStorage.setItem('LCPOSSYSTEMS_salary_advances', serialized);
-      }
-    });
-    // 13. Receive Stock Logs (GRN & Depletion history)
-    const unsubStockLogs = subscribeToCloud('stock_logs', (remoteLogs) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remoteLogs)) {
-        const serialized = JSON.stringify(remoteLogs);
-        if (prevStockLogsRef.current === serialized) return;
-        prevStockLogsRef.current = serialized;
-        setStockLogs(remoteLogs);
-        localStorage.setItem('linoli_stock_logs', serialized);
-      }
-    });
-
-    // 14. Receive System Settings (Company details, tax, printing)
-    const unsubSettings = subscribeToCloud('system_settings', (remoteSettings) => {
-      isCloudSynced.current = true;
-      if (remoteSettings && typeof remoteSettings === 'object') {
-        const serialized = JSON.stringify(remoteSettings);
-        if (prevSettingsRef.current === serialized) return;
-        prevSettingsRef.current = serialized;
-        setSettings(remoteSettings);
-        localStorage.setItem('linoli_system_settings', serialized);
-      }
-    });
-
-    // 15. Receive Shift History (Closed Z-Reports archive)
-    const unsubShiftHistory = subscribeToCloud('shift_history', (remoteHistory) => {
-      isCloudSynced.current = true;
-      if (Array.isArray(remoteHistory)) {
-        const serialized = JSON.stringify(remoteHistory);
-        if (prevShiftHistoryRef.current === serialized) return;
-        prevShiftHistoryRef.current = serialized;
-        setShiftHistory(remoteHistory);
-        localStorage.setItem('linoli_shift_history', serialized);
-      }
-    });
-
-    // 16. Receive Sequential Counters
-    const unsubCounters = subscribeToCloud('seq_counters', (remoteCounters) => {
-      isCloudSynced.current = true;
-      if (remoteCounters && typeof remoteCounters === 'object') {
-        const serialized = JSON.stringify(remoteCounters);
-        if (prevCountersRef.current === serialized) return;
-        prevCountersRef.current = serialized;
-        setSeqCounters(remoteCounters);
-        localStorage.setItem('linoli_seq_counters', serialized);
+        localStorage.setItem('lcpossystems_salary_advances', serialized);
       }
     });
     
@@ -1184,31 +1137,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubAccounting === 'function') unsubAccounting();
       if (typeof unsubVendorBills === 'function') unsubVendorBills();
       if (typeof unsubAdvances === 'function') unsubAdvances();
-      if (typeof unsubStockLogs === 'function') unsubStockLogs();
-      if (typeof unsubSettings === 'function') unsubSettings();
-      if (typeof unsubShiftHistory === 'function') unsubShiftHistory();
-      if (typeof unsubCounters === 'function') unsubCounters();
     };
-  }, []);
-
-  useEffect(() => {
-    const bootstrapCloud = async () => {
-      console.log('Seeding initial state to Firebase...');
-      await syncToCloud('menu_items', menuItems);
-      await syncToCloud('inventory', inventory);
-      await syncToCloud('floor_tables', floorTables);
-      await syncToCloud('staff_list', staffList);
-      await syncToCloud('system_settings', settings);
-      await syncToCloud('active_orders', activeOrders);
-      await syncToCloud('transactions', transactions);
-      await syncToCloud('vendor_bills', vendorBills);
-      await syncToCloud('salary_advances', salaryAdvances);
-      await syncToCloud('payroll_records', payrollRecords);
-      await syncToCloud('attendance_logs', attendanceLogs);
-      console.log('✅ Firebase initialized and seeded successfully.');
-    };
-
-    bootstrapCloud();
   }, []);
 
   // ============================================================
@@ -1376,53 +1305,6 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       }
     }
   }, [salaryAdvances]);
-  // Outbound Sync: Stock Logs
-  useEffect(() => {
-    if (!isCloudSynced.current) return;
-    if (stockLogs !== undefined) {
-      const current = JSON.stringify(stockLogs);
-      if (current !== prevStockLogsRef.current) {
-        prevStockLogsRef.current = current;
-        syncToCloud('stock_logs', stockLogs);
-      }
-    }
-  }, [stockLogs]);
-
-  // Outbound Sync: System Settings
-  useEffect(() => {
-    if (!isCloudSynced.current) return;
-    if (settings !== undefined) {
-      const current = JSON.stringify(settings);
-      if (current !== prevSettingsRef.current) {
-        prevSettingsRef.current = current;
-        syncToCloud('system_settings', settings);
-      }
-    }
-  }, [settings]);
-
-  // Outbound Sync: Shift History (Archived Z-Reports)
-  useEffect(() => {
-    if (!isCloudSynced.current) return;
-    if (shiftHistory !== undefined) {
-      const current = JSON.stringify(shiftHistory);
-      if (current !== prevShiftHistoryRef.current) {
-        prevShiftHistoryRef.current = current;
-        syncToCloud('shift_history', shiftHistory);
-      }
-    }
-  }, [shiftHistory]);
-
-  // Outbound Sync: Sequential Counters (Order, Inv, Cashout numbers)
-  useEffect(() => {
-    if (!isCloudSynced.current) return;
-    if (seqCounters !== undefined) {
-      const current = JSON.stringify(seqCounters);
-      if (current !== prevCountersRef.current) {
-        prevCountersRef.current = current;
-        syncToCloud('seq_counters', seqCounters);
-      }
-    }
-  }, [seqCounters]);
 
   const handleCreateStaff = (e) => {
     e.preventDefault();
@@ -1451,7 +1333,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       role: newStaffForm.role,
       pin: cleanPin,
       avatar: initials || 'ST',
-      email: newStaffForm.email.trim() || `${newStaffForm.name.trim().toLowerCase().replace(/\s+/g, '')}@LCPOSSYSTEMS.me`,
+      email: newStaffForm.email.trim() || `${newStaffForm.name.trim().toLowerCase().replace(/\s+/g, '')}@lcpossystems.me`,
       nicNumber: (newStaffForm.nicNumber || '').trim().toUpperCase(),
       nicDate: newStaffForm.nicDate || '',
       basicSalary: Number(newStaffForm.basicSalary) || 0,
@@ -1627,7 +1509,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
   // Backup & Restore Handlers
   const handleExportBackup = () => {
     const backupData = {
-      app: 'LCPOSSYSTEMS POS & ERP',
+      app: 'Lcpossystems POS & ERP',
       version: '2.5.0',
       exportedAt: new Date().toISOString(),
       exportedBy: currentUser.name,
@@ -1648,7 +1530,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `LCPOSSYSTEMS_backup_${getLocalDateStr()}.json`;
+    a.download = `lcpossystems_backup_${getLocalDateStr()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -1671,7 +1553,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
         if (!parsed || (!parsed.settings && !parsed.menuItems)) {
           setSettingsNotice({
             title: 'Invalid Backup File',
-            detail: 'The selected file is not a valid LCPOSSYSTEMS POS database backup.'
+            detail: 'The selected file is not a valid Lcpossystems POS database backup.'
           });
           setTimeout(() => setSettingsNotice(null), 4500);
           return;
@@ -1922,7 +1804,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
     setIsSendingEmail(true);
 
     const report = generateEodReportData(todayStr);
-    const recipient = emailSettings.recipient || 'LCPOSSYSTEMS@gmail.com';
+    const recipient = emailSettings.recipient || 'lcpossystems@gmail.com';
 
     try {
       let sentSuccessfully = false;
@@ -1965,7 +1847,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (!sentSuccessfully) {
         const subject = encodeURIComponent(`[Daily Activity Report] ${settings.restaurantName} - ${todayStr}`);
         const bodyText = encodeURIComponent(
-          `LCPOSSYSTEMS Daily Business & Activity Report\n` +
+          `LC POS SYSTEMS Daily Business & Activity Report\n` +
           `Date: ${todayStr}\n` +
           `Terminal: ${settings.terminalId}\n\n` +
           `--- FINANCIAL SUMMARY ---\n` +
@@ -8778,7 +8660,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     type="text"
                     value={settings.restaurantName}
                     onChange={e => setSettings(prev => ({ ...prev, restaurantName: e.target.value }))}
-                    placeholder="e.g. LCPOSSYSTEMS Midigama"
+                    placeholder="e.g. LC POS SYSTEMS Midigama"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                   />
                 </div>
@@ -8800,7 +8682,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     type="text"
                     value={settings.legalName || ''}
                     onChange={e => setSettings(prev => ({ ...prev, legalName: e.target.value }))}
-                    placeholder="e.g. LCPOSSYSTEMS Leisure (Pvt) Ltd"
+                    placeholder="e.g. LC POS SYSTEMS (Pvt) Ltd"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                   />
                 </div>
@@ -8855,7 +8737,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     type="email"
                     value={settings.email || ''}
                     onChange={e => setSettings(prev => ({ ...prev, email: e.target.value }))}
-                    placeholder="e.g. info@LCPOSSYSTEMS.me"
+                    placeholder="e.g. info@lcpossystems.me"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                   />
                 </div>
@@ -8866,7 +8748,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     type="text"
                     value={settings.website || ''}
                     onChange={e => setSettings(prev => ({ ...prev, website: e.target.value }))}
-                    placeholder="e.g. www.LCPOSSYSTEMS.me / @LCPOSSYSTEMS"
+                    placeholder="e.g. www.lcpossystems.me / @lcpossystems"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                   />
                 </div>
@@ -8924,7 +8806,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                     type="email"
                     value={emailSettings.recipient}
                     onChange={e => setEmailSettings(prev => ({ ...prev, recipient: e.target.value }))}
-                    placeholder="LCPOSSYSTEMS@gmail.com"
+                    placeholder="lcpossystems@gmail.com"
                     className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                   />
                   <span className="text-[10px] text-slate-400 mt-1 block">Receives complete daily business data</span>
@@ -12019,7 +11901,7 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
                   type="email"
                   value={newStaffForm.email}
                   onChange={e => setNewStaffForm(prev => ({ ...prev, email: e.target.value }))}
-                  placeholder="e.g. kasun@LCPOSSYSTEMS.me"
+                  placeholder="e.g. kasun@lcpossystems.me"
                   className="w-full px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-[#ff5500]"
                 />
               </div>

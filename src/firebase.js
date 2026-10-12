@@ -1,5 +1,6 @@
-import { initializeApp } from "firebase/app";
-import { getDatabase, ref, set, onValue } from "firebase/database";
+// src/firebase.js
+import { initializeApp } from 'firebase/app';
+import { getDatabase, ref, set, onValue } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: "AIzaSyClbjQD6DEcmYtLx6IbOehZdmjt016Gos8",
@@ -13,33 +14,35 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+export const rtdb = getDatabase(app);
 
-// Regional instance URL must be passed explicitly
-export const rtdb = getDatabase(app, "https://lc-pos-systems-default-rtdb.asia-southeast1.firebasedatabase.app");
-
-export const syncToCloud = async (nodeKey, payload) => {
+// Broadcast local state updates up to Firebase Realtime Database
+export const syncToCloud = (nodeName, data) => {
+  if (data === undefined || data === null) return;
   try {
-    const nodeRef = ref(rtdb, `pos_state/${nodeKey}`);
-    await set(nodeRef, payload);
-    console.log(`[Firebase] Successfully synced: pos_state/${nodeKey}`);
-  } catch (err) {
-    console.error(`[Firebase] Sync failed for pos_state/${nodeKey}:`, err);
-  }
-};
-
-export const subscribeToCloud = (nodeKey, callback) => {
-  try {
-    const nodeRef = ref(rtdb, `pos_state/${nodeKey}`);
-    return onValue(nodeRef, (snapshot) => {
-      const val = snapshot.val();
-      callback(val);
-    }, (err) => {
-      console.error(`[Firebase] Subscription error on pos_state/${nodeKey}:`, err);
+    const nodeRef = ref(rtdb, `linoli_pos_live/${nodeName}`);
+    set(nodeRef, {
+      payload: JSON.stringify(data),
+      updatedAt: new Date().toISOString()
     });
   } catch (err) {
-    console.error(`[Firebase] Error initializing listener:`, err);
-    return () => {};
+    console.warn(`Sync error on ${nodeName}:`, err);
   }
 };
 
-export default app;
+// Listen in real time for updates made from any other device
+export const subscribeToCloud = (nodeName, callback) => {
+  const nodeRef = ref(rtdb, `linoli_pos_live/${nodeName}`);
+  return onValue(nodeRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const val = snapshot.val();
+      if (val && val.payload) {
+        try {
+          callback(JSON.parse(val.payload));
+        } catch (e) {
+          console.error(`Parse error on ${nodeName}:`, e);
+        }
+      }
+    }
+  });
+};
