@@ -932,7 +932,7 @@ const exportReportToExcel = (reportTitle, dataRows, filenamePrefix = 'Report') =
   };
   
  // Refs to prevent premature uploads and re-render loops
-  const isCloudSynced = useRef(false);
+  const isCloudSynced = useRef(true);
   const prevOrdersRef = useRef('');
   const prevTransRef = useRef('');
   const prevTablesRef = useRef('');
@@ -1189,6 +1189,26 @@ const unsubShift = subscribeToCloud('current_shift', (remoteShift) => {
       if (typeof unsubShiftHistory === 'function') unsubShiftHistory();
       if (typeof unsubCounters === 'function') unsubCounters();
     };
+  }, []);
+
+  useEffect(() => {
+    const bootstrapCloud = async () => {
+      console.log('Seeding initial state to Firebase...');
+      await syncToCloud('menu_items', menuItems);
+      await syncToCloud('inventory', inventory);
+      await syncToCloud('floor_tables', floorTables);
+      await syncToCloud('staff_list', staffList);
+      await syncToCloud('system_settings', settings);
+      await syncToCloud('active_orders', activeOrders);
+      await syncToCloud('transactions', transactions);
+      await syncToCloud('vendor_bills', vendorBills);
+      await syncToCloud('salary_advances', salaryAdvances);
+      await syncToCloud('payroll_records', payrollRecords);
+      await syncToCloud('attendance_logs', attendanceLogs);
+      console.log('✅ Firebase initialized and seeded successfully.');
+    };
+
+    bootstrapCloud();
   }, []);
 
   // ============================================================

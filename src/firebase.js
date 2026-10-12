@@ -12,34 +12,32 @@ const firebaseConfig = {
   measurementId: "G-6ESVVZNNQE"
 };
 
-// Initialize App
 const app = initializeApp(firebaseConfig);
 
-// Initialize RTDB with exact regional URL
+// Regional instance URL must be passed explicitly
 export const rtdb = getDatabase(app, "https://lc-pos-systems-default-rtdb.asia-southeast1.firebasedatabase.app");
 
-// Push any collection or object up to Firebase
-export const syncToCloud = (nodeKey, payload) => {
+export const syncToCloud = async (nodeKey, payload) => {
   try {
     const nodeRef = ref(rtdb, `pos_state/${nodeKey}`);
-    return set(nodeRef, payload);
+    await set(nodeRef, payload);
+    console.log(`[Firebase] Successfully synced: pos_state/${nodeKey}`);
   } catch (err) {
-    console.error(`Firebase sync error for ${nodeKey}:`, err);
+    console.error(`[Firebase] Sync failed for pos_state/${nodeKey}:`, err);
   }
 };
 
-// Listen in real-time to changes from Firebase
 export const subscribeToCloud = (nodeKey, callback) => {
   try {
     const nodeRef = ref(rtdb, `pos_state/${nodeKey}`);
     return onValue(nodeRef, (snapshot) => {
       const val = snapshot.val();
-      if (val !== null && val !== undefined) {
-        callback(val);
-      }
+      callback(val);
+    }, (err) => {
+      console.error(`[Firebase] Subscription error on pos_state/${nodeKey}:`, err);
     });
   } catch (err) {
-    console.error(`Firebase subscribe error for ${nodeKey}:`, err);
+    console.error(`[Firebase] Error initializing listener:`, err);
     return () => {};
   }
 };
