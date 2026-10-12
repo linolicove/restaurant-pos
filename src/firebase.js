@@ -2,14 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getDatabase, ref, set, push, onValue, off } from "firebase/database";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAbSLBjSFjlFdAG-8_oqoIMI1DkyP1Aew4",
-  authDomain: "restaurant-pos-3239a.firebaseapp.com",
-  databaseURL: "https://restaurant-pos-3239a-default-rtdb.asia-southeast1.firebasedatabase.app",
-  projectId: "restaurant-pos-3239a",
-  storageBucket: "restaurant-pos-3239a.firebasestorage.app",
-  messagingSenderId: "232963602696",
-  appId: "1:232963602696:web:6f9779306e192cbf3654bd",
-  measurementId: "G-8KK29854B3"
+  apiKey: "AIzaSyClbjQD6DEcmYtLx6IbOehZdmjt016Gos8",
+  authDomain: "lc-pos-systems.firebaseapp.com",
+  databaseURL: "https://lc-pos-systems-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "lc-pos-systems",
+  storageBucket: "lc-pos-systems.firebasestorage.app",
+  messagingSenderId: "821657587922",
+  appId: "1:821657587922:web:c23231fce32da446435d0b",
+  measurementId: "G-6ESVVZNNQE"
 };
 
 // Initialize Firebase
