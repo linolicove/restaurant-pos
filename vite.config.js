@@ -1,15 +1,16 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import obfuscator from 'rollup-plugin-obfuscator'
 
-// https://vite.dev/config/
 export default defineConfig(({ mode }) => {
   const isProduction = mode === 'production';
 
   return {
     plugins: [
       react(),
-      // Only obfuscate during production builds so local dev stays fast
+      tailwindcss(),
+      // Only obfuscate in production so your local dev server stays fast
       isProduction && obfuscator({
         compact: true,
         controlFlowFlattening: true,
@@ -26,13 +27,14 @@ export default defineConfig(({ mode }) => {
     ].filter(Boolean),
 
     build: {
-      // 1. Critical: Disables .map files so DevTools cannot inspect original source code
+      // 1. Critical: Disables .map files so DevTools cannot recover your original source code
       sourcemap: false,
 
       // 2. Uses Terser for advanced minification and identifier mangling
       minify: 'terser',
       terserOptions: {
         compress: {
+          // Removes console.log and debugger statements from production bundle
           drop_console: true,
           drop_debugger: true,
           pure_funcs: ['console.log', 'console.info', 'console.debug']
@@ -45,7 +47,7 @@ export default defineConfig(({ mode }) => {
         }
       },
 
-      // 3. Scrambles chunk names so file structures are obscured
+      // 3. Obscures chunk names so file structures are not obvious
       rollupOptions: {
         output: {
           entryFileNames: 'assets/[hash].js',
